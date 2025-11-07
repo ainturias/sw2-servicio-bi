@@ -219,138 +219,138 @@ async def obtener_resumen_dashboard(
                     SELECT COALESCE(SUM(monto), 0) 
                     FROM ventas v
                     {ventas_where if ventas_where else "WHERE v.estado = 'confirmada'"}
-                {f"AND v.estado = 'confirmada'" if ventas_where else ""}
-            """
-            if ventas_where:
-                cur.execute(query_monto, params)
-            else:
-                cur.execute("""
-                    SELECT COALESCE(SUM(monto), 0) 
-                    FROM ventas 
-                    WHERE estado = 'confirmada'
-                """)
-            total_monto_vendido = cur.fetchone()[0] or 0.0
-            
-            # Total de ventas (confirmadas + canceladas) para calcular tasa
-            query_total_ventas = f"""
-                SELECT COUNT(*) 
-                FROM ventas v
-                {ventas_where}
-            """
-            if ventas_where:
-                cur.execute(query_total_ventas, params)
-            else:
-                cur.execute("SELECT COUNT(*) FROM ventas")
-            total_ventas = cur.fetchone()[0]
-            
-            # Total de ventas canceladas
-            query_ventas_canceladas = f"""
-                SELECT COUNT(*) 
-                FROM ventas v
-                {ventas_where if ventas_where else "WHERE v.estado = 'cancelada'"}
-                {f"AND v.estado = 'cancelada'" if ventas_where else ""}
-            """
-            if ventas_where:
-                cur.execute(query_ventas_canceladas, params)
-            else:
-                cur.execute("SELECT COUNT(*) FROM ventas WHERE estado = 'cancelada'")
-            total_ventas_canceladas = cur.fetchone()[0]
-            
-            # Calcular tasa de cancelación usando NULLIF para prevenir división por cero
-            query_tasa = f"""
-                SELECT COALESCE(
-                    (COUNT(CASE WHEN v.estado = 'cancelada' THEN 1 END)::DECIMAL / 
-                     NULLIF(COUNT(*), 0)) * 100, 
-                    0
-                )
-                FROM ventas v
-                {ventas_where}
-            """
-            if ventas_where:
-                cur.execute(query_tasa, params)
-            else:
-                cur.execute("""
+                    {f"AND v.estado = 'confirmada'" if ventas_where else ""}
+                """
+                if ventas_where:
+                    cur.execute(query_monto, params)
+                else:
+                    cur.execute("""
+                        SELECT COALESCE(SUM(monto), 0) 
+                        FROM ventas 
+                        WHERE estado = 'confirmada'
+                    """)
+                total_monto_vendido = cur.fetchone()[0] or 0.0
+                
+                # Total de ventas (confirmadas + canceladas) para calcular tasa
+                query_total_ventas = f"""
+                    SELECT COUNT(*) 
+                    FROM ventas v
+                    {ventas_where}
+                """
+                if ventas_where:
+                    cur.execute(query_total_ventas, params)
+                else:
+                    cur.execute("SELECT COUNT(*) FROM ventas")
+                total_ventas = cur.fetchone()[0]
+                
+                # Total de ventas canceladas
+                query_ventas_canceladas = f"""
+                    SELECT COUNT(*) 
+                    FROM ventas v
+                    {ventas_where if ventas_where else "WHERE v.estado = 'cancelada'"}
+                    {f"AND v.estado = 'cancelada'" if ventas_where else ""}
+                """
+                if ventas_where:
+                    cur.execute(query_ventas_canceladas, params)
+                else:
+                    cur.execute("SELECT COUNT(*) FROM ventas WHERE estado = 'cancelada'")
+                total_ventas_canceladas = cur.fetchone()[0]
+                
+                # Calcular tasa de cancelación usando NULLIF para prevenir división por cero
+                query_tasa = f"""
                     SELECT COALESCE(
-                        (COUNT(CASE WHEN estado = 'cancelada' THEN 1 END)::DECIMAL / 
+                        (COUNT(CASE WHEN v.estado = 'cancelada' THEN 1 END)::DECIMAL / 
                          NULLIF(COUNT(*), 0)) * 100, 
                         0
                     )
-                    FROM ventas
-                """)
-            tasa_cancelacion = float(cur.fetchone()[0] or 0.0)
-            
-            # Obtener top destinos (top 5 por defecto)
-            fecha_where_top = ""
-            params_top = []
-            if fecha_inicio is not None and fecha_fin is not None:
-                fecha_where_top = "AND v.fecha_venta BETWEEN %s AND %s"
-                params_top = [fecha_inicio, fecha_fin]
-            elif fecha_inicio is not None:
-                fecha_where_top = "AND v.fecha_venta >= %s"
-                params_top = [fecha_inicio]
-            elif fecha_fin is not None:
-                fecha_where_top = "AND v.fecha_venta <= %s"
-                params_top = [fecha_fin]
-            
-            query_top_destinos = f"""
-                SELECT 
-                    COALESCE(s.destino_ciudad, pt.destino_principal, 'Sin destino') as destino,
-                    COALESCE(SUM(dv.subtotal), 0) as ingresos
-                FROM detalle_venta dv
-                INNER JOIN ventas v ON dv.venta_id = v.id
-                LEFT JOIN servicios s ON dv.servicio_id = s.id
-                LEFT JOIN paquetes_turisticos pt ON dv.paquete_id = pt.id
-                WHERE v.estado = 'confirmada'
-                {fecha_where_top}
-                GROUP BY COALESCE(s.destino_ciudad, pt.destino_principal, 'Sin destino')
-                HAVING COALESCE(SUM(dv.subtotal), 0) > 0
-                ORDER BY ingresos DESC
-                LIMIT 5
-            """
-            cur.execute(query_top_destinos, params_top)
-            
-            top_destinos_results = cur.fetchall()
-            top_destinos = [
-                TopDestino(
-                    destino=row[0] or "Sin destino",
-                    ingresos=round(float(row[1] or 0.0), 2)
-                )
-                for row in top_destinos_results
-            ]
-            
-            # Obtener tendencia de reservas por día
-            fecha_where_tendencia = ""
-            params_tendencia = []
-            if fecha_inicio is not None and fecha_fin is not None:
-                fecha_where_tendencia = "AND v.fecha_venta BETWEEN %s AND %s"
-                params_tendencia = [fecha_inicio, fecha_fin]
-            elif fecha_inicio is not None:
-                fecha_where_tendencia = "AND v.fecha_venta >= %s"
-                params_tendencia = [fecha_inicio]
-            elif fecha_fin is not None:
-                fecha_where_tendencia = "AND v.fecha_venta <= %s"
-                params_tendencia = [fecha_fin]
-            
-            query_tendencia = f"""
-                SELECT 
-                    DATE(fecha_venta) as fecha,
-                    COUNT(*) as cantidad_reservas
-                FROM ventas v
-                WHERE v.estado = 'confirmada'
-                {fecha_where_tendencia}
-                GROUP BY DATE(fecha_venta)
-                ORDER BY fecha ASC
-            """
-            cur.execute(query_tendencia, params_tendencia)
-            
-            tendencia_results = cur.fetchall()
-            tendencia_reservas_por_dia = [
-                TendenciaDia(
-                    fecha=row[0].isoformat() if hasattr(row[0], 'isoformat') else str(row[0]),
-                    cantidad_reservas=int(row[1] or 0)
-                )
-                for row in tendencia_results
-            ]
+                    FROM ventas v
+                    {ventas_where}
+                """
+                if ventas_where:
+                    cur.execute(query_tasa, params)
+                else:
+                    cur.execute("""
+                        SELECT COALESCE(
+                            (COUNT(CASE WHEN estado = 'cancelada' THEN 1 END)::DECIMAL / 
+                             NULLIF(COUNT(*), 0)) * 100, 
+                            0
+                        )
+                        FROM ventas
+                    """)
+                tasa_cancelacion = float(cur.fetchone()[0] or 0.0)
+                
+                # Obtener top destinos (top 5 por defecto)
+                fecha_where_top = ""
+                params_top = []
+                if fecha_inicio is not None and fecha_fin is not None:
+                    fecha_where_top = "AND v.fecha_venta BETWEEN %s AND %s"
+                    params_top = [fecha_inicio, fecha_fin]
+                elif fecha_inicio is not None:
+                    fecha_where_top = "AND v.fecha_venta >= %s"
+                    params_top = [fecha_inicio]
+                elif fecha_fin is not None:
+                    fecha_where_top = "AND v.fecha_venta <= %s"
+                    params_top = [fecha_fin]
+                
+                query_top_destinos = f"""
+                    SELECT 
+                        COALESCE(s.destino_ciudad, pt.destino_principal, 'Sin destino') as destino,
+                        COALESCE(SUM(dv.subtotal), 0) as ingresos
+                    FROM detalle_venta dv
+                    INNER JOIN ventas v ON dv.venta_id = v.id
+                    LEFT JOIN servicios s ON dv.servicio_id = s.id
+                    LEFT JOIN paquetes_turisticos pt ON dv.paquete_id = pt.id
+                    WHERE v.estado = 'confirmada'
+                    {fecha_where_top}
+                    GROUP BY COALESCE(s.destino_ciudad, pt.destino_principal, 'Sin destino')
+                    HAVING COALESCE(SUM(dv.subtotal), 0) > 0
+                    ORDER BY ingresos DESC
+                    LIMIT 5
+                """
+                cur.execute(query_top_destinos, params_top)
+                
+                top_destinos_results = cur.fetchall()
+                top_destinos = [
+                    TopDestino(
+                        destino=row[0] or "Sin destino",
+                        ingresos=round(float(row[1] or 0.0), 2)
+                    )
+                    for row in top_destinos_results
+                ]
+                
+                # Obtener tendencia de reservas por día
+                fecha_where_tendencia = ""
+                params_tendencia = []
+                if fecha_inicio is not None and fecha_fin is not None:
+                    fecha_where_tendencia = "AND v.fecha_venta BETWEEN %s AND %s"
+                    params_tendencia = [fecha_inicio, fecha_fin]
+                elif fecha_inicio is not None:
+                    fecha_where_tendencia = "AND v.fecha_venta >= %s"
+                    params_tendencia = [fecha_inicio]
+                elif fecha_fin is not None:
+                    fecha_where_tendencia = "AND v.fecha_venta <= %s"
+                    params_tendencia = [fecha_fin]
+                
+                query_tendencia = f"""
+                    SELECT 
+                        DATE(fecha_venta) as fecha,
+                        COUNT(*) as cantidad_reservas
+                    FROM ventas v
+                    WHERE v.estado = 'confirmada'
+                    {fecha_where_tendencia}
+                    GROUP BY DATE(fecha_venta)
+                    ORDER BY fecha ASC
+                """
+                cur.execute(query_tendencia, params_tendencia)
+                
+                tendencia_results = cur.fetchall()
+                tendencia_reservas_por_dia = [
+                    TendenciaDia(
+                        fecha=row[0].isoformat() if hasattr(row[0], 'isoformat') else str(row[0]),
+                        cantidad_reservas=int(row[1] or 0)
+                    )
+                    for row in tendencia_results
+                ]
         
         # Preparar período para la respuesta
         periodo = Periodo(
