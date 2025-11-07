@@ -12,8 +12,7 @@ from datetime import datetime
 
 import pymongo
 from pymongo import MongoClient
-import psycopg2
-from psycopg2.extras import execute_values
+import psycopg
 from dotenv import load_dotenv
 
 # Cargar variables de entorno desde .env si existe
@@ -56,14 +55,8 @@ def get_pg_connection():
         raise ValueError("Variables de entorno de PostgreSQL (user, password) no están configuradas")
     
     try:
-        conn = psycopg2.connect(
-            dbname=database,
-            user=user,
-            password=password,
-            host=host,
-            port=port,
-            sslmode='require'
-        )
+        conninfo = f"dbname={database} user={user} password={password} host={host} port={port} sslmode=require"
+        conn = psycopg.connect(conninfo)
         logger.info("Conexión a PostgreSQL establecida")
         return conn
     except Exception as e:

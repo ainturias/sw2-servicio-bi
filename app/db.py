@@ -1,13 +1,13 @@
 import os
-import psycopg2
-from psycopg2.extensions import connection
+import psycopg
+from psycopg import Connection
 from dotenv import load_dotenv
 
 # Cargar variables de entorno desde .env si existe
 load_dotenv()
 
 
-def get_conn() -> connection:
+def get_conn() -> Connection:
     """
     Crea y retorna una conexión a PostgreSQL usando el Transaction Pooler de Supabase.
     
@@ -19,11 +19,11 @@ def get_conn() -> connection:
     - dbname: Nombre de la base de datos (default: postgres)
     
     Returns:
-        connection: Conexión a la base de datos PostgreSQL
+        Connection: Conexión a la base de datos PostgreSQL
         
     Raises:
         ValueError: Si faltan variables de entorno requeridas
-        psycopg2.Error: Si hay un error al conectar con la base de datos
+        psycopg.Error: Si hay un error al conectar con la base de datos
     """
     # Leer variables de entorno como están definidas en Supabase
     database = os.getenv("dbname", "postgres")
@@ -42,14 +42,8 @@ def get_conn() -> connection:
         raise ValueError("PG_PASSWORD no está configurada")
     
     # Construir connection string con SSL mode
-    conn_params = {
-        "database": database,
-        "user": user,
-        "password": password,
-        "host": host,
-        "port": port,
-        "sslmode": sslmode
-    }
+    # Construir connection string para psycopg 3.x
+    conninfo = f"dbname={database} user={user} password={password} host={host} port={port} sslmode={sslmode}"
     
     # Crear y retornar la conexión
-    return psycopg2.connect(**conn_params)
+    return psycopg.connect(conninfo)
