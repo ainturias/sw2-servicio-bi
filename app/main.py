@@ -195,29 +195,30 @@ async def obtener_resumen_dashboard(
         
         conn = get_conn()
         
-        with conn, conn.cursor() as cur:
-            # Total de clientes (no se filtra por fecha)
-            cur.execute("SELECT COUNT(*) FROM clientes")
-            total_clientes = cur.fetchone()[0]
-            
-            # Total de ventas confirmadas
-            query_ventas_confirmadas = f"""
-                SELECT COUNT(*) 
-                FROM ventas v
-                {ventas_where if ventas_where else "WHERE v.estado = 'confirmada'"}
-                {f"AND v.estado = 'confirmada'" if ventas_where else ""}
-            """
-            if ventas_where:
-                cur.execute(query_ventas_confirmadas, params)
-            else:
-                cur.execute("SELECT COUNT(*) FROM ventas WHERE estado = 'confirmada'")
-            total_ventas_confirmadas = cur.fetchone()[0]
-            
-            # Total de monto vendido (suma de montos de ventas confirmadas)
-            query_monto = f"""
-                SELECT COALESCE(SUM(monto), 0) 
-                FROM ventas v
-                {ventas_where if ventas_where else "WHERE v.estado = 'confirmada'"}
+        with conn:
+            with conn.cursor() as cur:
+                # Total de clientes (no se filtra por fecha)
+                cur.execute("SELECT COUNT(*) FROM clientes")
+                total_clientes = cur.fetchone()[0]
+                
+                # Total de ventas confirmadas
+                query_ventas_confirmadas = f"""
+                    SELECT COUNT(*) 
+                    FROM ventas v
+                    {ventas_where if ventas_where else "WHERE v.estado = 'confirmada'"}
+                    {f"AND v.estado = 'confirmada'" if ventas_where else ""}
+                """
+                if ventas_where:
+                    cur.execute(query_ventas_confirmadas, params)
+                else:
+                    cur.execute("SELECT COUNT(*) FROM ventas WHERE estado = 'confirmada'")
+                total_ventas_confirmadas = cur.fetchone()[0]
+                
+                # Total de monto vendido (suma de montos de ventas confirmadas)
+                query_monto = f"""
+                    SELECT COALESCE(SUM(monto), 0) 
+                    FROM ventas v
+                    {ventas_where if ventas_where else "WHERE v.estado = 'confirmada'"}
                 {f"AND v.estado = 'confirmada'" if ventas_where else ""}
             """
             if ventas_where:
@@ -413,24 +414,15 @@ async def obtener_margen_bruto(
         
         conn = get_conn()
         
-        with conn, conn.cursor() as cur:
-            # Query para calcular ingresos, costos y margen bruto
-            # Usa LEFT JOINs para servicios y paquetes_turisticos
-            # Calcula el costo basado en servicio_id o paquete_id
-            query = f"""
-                SELECT 
-                    COALESCE(SUM(dv.subtotal), 0) as ingresos,
-                    COALESCE(SUM(
-                        CASE 
-                            WHEN dv.servicio_id IS NOT NULL THEN 
-                                COALESCE(s.precio_costo, 0) * dv.cantidad
-                            WHEN dv.paquete_id IS NOT NULL THEN 
-                                COALESCE(pt.precio_total_venta, 0) * 0.75 * dv.cantidad
-                            ELSE 0
-                        END
-                    ), 0) as costo,
-                    COALESCE(
-                        ((SUM(dv.subtotal) - SUM(
+        with conn:
+            with conn.cursor() as cur:
+                # Query para calcular ingresos, costos y margen bruto
+                # Usa LEFT JOINs para servicios y paquetes_turisticos
+                # Calcula el costo basado en servicio_id o paquete_id
+                query = f"""
+                    SELECT 
+                        COALESCE(SUM(dv.subtotal), 0) as ingresos,
+                        COALESCE(SUM(
                             CASE 
                                 WHEN dv.servicio_id IS NOT NULL THEN 
                                     COALESCE(s.precio_costo, 0) * dv.cantidad
@@ -438,23 +430,33 @@ async def obtener_margen_bruto(
                                     COALESCE(pt.precio_total_venta, 0) * 0.75 * dv.cantidad
                                 ELSE 0
                             END
-                        )) / NULLIF(SUM(dv.subtotal), 0)) * 100,
-                        0
-                    ) as margen_bruto_pct
-                FROM detalle_venta dv
-                INNER JOIN ventas v ON dv.venta_id = v.id
-                LEFT JOIN servicios s ON dv.servicio_id = s.id
-                LEFT JOIN paquetes_turisticos pt ON dv.paquete_id = pt.id
-                WHERE v.estado = 'confirmada'
-                {fecha_where}
-            """
-            
-            cur.execute(query, params)
-            result = cur.fetchone()
-            
-            ingresos = float(result[0] or 0.0)
-            costo = float(result[1] or 0.0)
-            margen_bruto_pct = float(result[2] or 0.0)
+                        ), 0) as costo,
+                        COALESCE(
+                            ((SUM(dv.subtotal) - SUM(
+                                CASE 
+                                    WHEN dv.servicio_id IS NOT NULL THEN 
+                                        COALESCE(s.precio_costo, 0) * dv.cantidad
+                                    WHEN dv.paquete_id IS NOT NULL THEN 
+                                        COALESCE(pt.precio_total_venta, 0) * 0.75 * dv.cantidad
+                                    ELSE 0
+                                END
+                            )) / NULLIF(SUM(dv.subtotal), 0)) * 100,
+                            0
+                        ) as margen_bruto_pct
+                    FROM detalle_venta dv
+                    INNER JOIN ventas v ON dv.venta_id = v.id
+                    LEFT JOIN servicios s ON dv.servicio_id = s.id
+                    LEFT JOIN paquetes_turisticos pt ON dv.paquete_id = pt.id
+                    WHERE v.estado = 'confirmada'
+                    {fecha_where}
+                """
+                
+                cur.execute(query, params)
+                result = cur.fetchone()
+                
+                ingresos = float(result[0] or 0.0)
+                costo = float(result[1] or 0.0)
+                margen_bruto_pct = float(result[2] or 0.0)
         
         # Preparar período para la respuesta
         periodo = Periodo(
@@ -510,41 +512,42 @@ async def obtener_tasa_conversion(
         
         conn = get_conn()
         
-        with conn, conn.cursor() as cur:
-            # Verificar si existe el estado "emitida"
-            cur.execute("""
-                SELECT DISTINCT estado 
-                FROM ventas 
-                LIMIT 10
-            """)
-            estados = [row[0] for row in cur.fetchall()]
-            estado_confirmado = "emitida" if "emitida" in estados else "confirmada"
-            
-            # Calcular tasa de conversión usando NULLIF para prevenir división por cero
-            if fecha_where:
-                query = f"""
-                    SELECT COALESCE(
-                        (COUNT(CASE WHEN estado = %s THEN 1 END)::DECIMAL / 
-                         NULLIF(COUNT(*), 0)) * 100,
-                        0
-                    ) as tasa_conversion
-                    FROM ventas
-                    {fecha_where}
-                """
-                query_params = [estado_confirmado] + params
-            else:
-                query = """
-                    SELECT COALESCE(
-                        (COUNT(CASE WHEN estado = %s THEN 1 END)::DECIMAL / 
-                         NULLIF(COUNT(*), 0)) * 100,
-                        0
-                    ) as tasa_conversion
-                    FROM ventas
-                """
-                query_params = [estado_confirmado]
-            
-            cur.execute(query, query_params)
-            tasa_conversion = float(cur.fetchone()[0] or 0.0)
+        with conn:
+            with conn.cursor() as cur:
+                # Verificar si existe el estado "emitida"
+                cur.execute("""
+                    SELECT DISTINCT estado 
+                    FROM ventas 
+                    LIMIT 10
+                """)
+                estados = [row[0] for row in cur.fetchall()]
+                estado_confirmado = "emitida" if "emitida" in estados else "confirmada"
+                
+                # Calcular tasa de conversión usando NULLIF para prevenir división por cero
+                if fecha_where:
+                    query = f"""
+                        SELECT COALESCE(
+                            (COUNT(CASE WHEN estado = %s THEN 1 END)::DECIMAL / 
+                             NULLIF(COUNT(*), 0)) * 100,
+                            0
+                        ) as tasa_conversion
+                        FROM ventas
+                        {fecha_where}
+                    """
+                    query_params = [estado_confirmado] + params
+                else:
+                    query = """
+                        SELECT COALESCE(
+                            (COUNT(CASE WHEN estado = %s THEN 1 END)::DECIMAL / 
+                             NULLIF(COUNT(*), 0)) * 100,
+                            0
+                        ) as tasa_conversion
+                        FROM ventas
+                    """
+                    query_params = [estado_confirmado]
+                
+                cur.execute(query, query_params)
+                tasa_conversion = float(cur.fetchone()[0] or 0.0)
         
         # Preparar período para la respuesta
         periodo = Periodo(
@@ -597,20 +600,21 @@ async def obtener_tasa_cancelacion(
         
         conn = get_conn()
         
-        with conn, conn.cursor() as cur:
-            # Calcular tasa de cancelación usando NULLIF para prevenir división por cero
-            query = f"""
-                SELECT COALESCE(
-                    (COUNT(CASE WHEN estado = 'cancelada' THEN 1 END)::DECIMAL / 
-                     NULLIF(COUNT(*), 0)) * 100,
-                    0
-                ) as tasa_cancelacion
-                FROM ventas
-                {fecha_where}
-            """
-            
-            cur.execute(query, params)
-            tasa_cancelacion = float(cur.fetchone()[0] or 0.0)
+        with conn:
+            with conn.cursor() as cur:
+                # Calcular tasa de cancelación usando NULLIF para prevenir división por cero
+                query = f"""
+                    SELECT COALESCE(
+                        (COUNT(CASE WHEN estado = 'cancelada' THEN 1 END)::DECIMAL / 
+                         NULLIF(COUNT(*), 0)) * 100,
+                        0
+                    ) as tasa_cancelacion
+                    FROM ventas
+                    {fecha_where}
+                """
+                
+                cur.execute(query, params)
+                tasa_cancelacion = float(cur.fetchone()[0] or 0.0)
         
         # Preparar período para la respuesta
         periodo = Periodo(
@@ -663,19 +667,20 @@ async def obtener_csat_promedio(
         
         conn = get_conn()
         
-        with conn, conn.cursor() as cur:
-            # Calcular promedio de puntuación de satisfacción
-            # Solo ventas confirmadas o finalizadas
-            query = f"""
-                SELECT COALESCE(AVG(puntuacion_satisfaccion), 0) as csat_promedio
-                FROM ventas
-                WHERE estado IN ('confirmada', 'finalizada')
-                  AND puntuacion_satisfaccion IS NOT NULL
-                {fecha_where}
-            """
-            
-            cur.execute(query, params)
-            csat_promedio = float(cur.fetchone()[0] or 0.0)
+        with conn:
+            with conn.cursor() as cur:
+                # Calcular promedio de puntuación de satisfacción
+                # Solo ventas confirmadas o finalizadas
+                query = f"""
+                    SELECT COALESCE(AVG(puntuacion_satisfaccion), 0) as csat_promedio
+                    FROM ventas
+                    WHERE estado IN ('confirmada', 'finalizada')
+                      AND puntuacion_satisfaccion IS NOT NULL
+                    {fecha_where}
+                """
+                
+                cur.execute(query, params)
+                csat_promedio = float(cur.fetchone()[0] or 0.0)
         
         # Preparar período para la respuesta
         periodo = Periodo(
@@ -732,35 +737,36 @@ async def obtener_top_destinos(
         
         conn = get_conn()
         
-        with conn, conn.cursor() as cur:
-            # Query para obtener top destinos agrupados por destino
-            query = f"""
-                SELECT 
-                    COALESCE(s.destino_ciudad, pt.destino_principal, 'Sin destino') as destino,
-                    COALESCE(SUM(dv.subtotal), 0) as ingresos
-                FROM detalle_venta dv
-                INNER JOIN ventas v ON dv.venta_id = v.id
-                LEFT JOIN servicios s ON dv.servicio_id = s.id
-                LEFT JOIN paquetes_turisticos pt ON dv.paquete_id = pt.id
-                WHERE v.estado = 'confirmada'
-                {fecha_where}
-                GROUP BY COALESCE(s.destino_ciudad, pt.destino_principal, 'Sin destino')
-                HAVING COALESCE(SUM(dv.subtotal), 0) > 0
-                ORDER BY ingresos DESC
-                LIMIT %s
-            """
-            
-            query_params = params + [limit]
-            cur.execute(query, query_params)
-            results = cur.fetchall()
-            
-            destinos = [
-                TopDestino(
-                    destino=row[0] or "Sin destino",
-                    ingresos=round(float(row[1] or 0.0), 2)
-                )
-                for row in results
-            ]
+        with conn:
+            with conn.cursor() as cur:
+                # Query para obtener top destinos agrupados por destino
+                query = f"""
+                    SELECT 
+                        COALESCE(s.destino_ciudad, pt.destino_principal, 'Sin destino') as destino,
+                        COALESCE(SUM(dv.subtotal), 0) as ingresos
+                    FROM detalle_venta dv
+                    INNER JOIN ventas v ON dv.venta_id = v.id
+                    LEFT JOIN servicios s ON dv.servicio_id = s.id
+                    LEFT JOIN paquetes_turisticos pt ON dv.paquete_id = pt.id
+                    WHERE v.estado = 'confirmada'
+                    {fecha_where}
+                    GROUP BY COALESCE(s.destino_ciudad, pt.destino_principal, 'Sin destino')
+                    HAVING COALESCE(SUM(dv.subtotal), 0) > 0
+                    ORDER BY ingresos DESC
+                    LIMIT %s
+                """
+                
+                query_params = params + [limit]
+                cur.execute(query, query_params)
+                results = cur.fetchall()
+                
+                destinos = [
+                    TopDestino(
+                        destino=row[0] or "Sin destino",
+                        ingresos=round(float(row[1] or 0.0), 2)
+                    )
+                    for row in results
+                ]
         
         # Preparar período para la respuesta
         periodo = Periodo(
@@ -846,46 +852,47 @@ async def exportar_ventas_csv(
             """Generador para crear el CSV en streaming"""
             conn = get_conn()
             try:
-                output = io.StringIO()
-                writer = csv.writer(output)
-                
-                # Escribir cabeceras
-                writer.writerow([
-                    'venta_id',
-                    'fecha_venta',
-                    'cliente_id',
-                    'agente_id',
-                    'estado_venta',
-                    'monto_total',
-                    'destino',
-                    'cantidad',
-                    'precio_unitario_venta',
-                    'subtotal'
-                ])
-                yield output.getvalue()
-                output.seek(0)
-                output.truncate(0)
-                
-                # Ejecutar query y escribir filas
-                with conn.cursor() as cur:
-                    cur.execute(query, params)
+                with conn:
+                    output = io.StringIO()
+                    writer = csv.writer(output)
                     
-                    for row in cur:
-                        writer.writerow([
-                            row[0] or '',  # venta_id
-                            row[1].isoformat() if row[1] else '',  # fecha_venta
-                            row[2] or '',  # cliente_id
-                            row[3] or '',  # agente_id
-                            row[4] or '',  # estado_venta
-                            float(row[5]) if row[5] is not None else 0.0,  # monto_total
-                            row[6] or 'Sin destino',  # destino
-                            row[7] or 0,  # cantidad
-                            float(row[8]) if row[8] is not None else 0.0,  # precio_unitario_venta
-                            float(row[9]) if row[9] is not None else 0.0  # subtotal
-                        ])
-                        yield output.getvalue()
-                        output.seek(0)
-                        output.truncate(0)
+                    # Escribir cabeceras
+                    writer.writerow([
+                        'venta_id',
+                        'fecha_venta',
+                        'cliente_id',
+                        'agente_id',
+                        'estado_venta',
+                        'monto_total',
+                        'destino',
+                        'cantidad',
+                        'precio_unitario_venta',
+                        'subtotal'
+                    ])
+                    yield output.getvalue()
+                    output.seek(0)
+                    output.truncate(0)
+                    
+                    # Ejecutar query y escribir filas
+                    with conn.cursor() as cur:
+                        cur.execute(query, params)
+                        
+                        for row in cur:
+                            writer.writerow([
+                                row[0] or '',  # venta_id
+                                row[1].isoformat() if row[1] else '',  # fecha_venta
+                                row[2] or '',  # cliente_id
+                                row[3] or '',  # agente_id
+                                row[4] or '',  # estado_venta
+                                float(row[5]) if row[5] is not None else 0.0,  # monto_total
+                                row[6] or 'Sin destino',  # destino
+                                row[7] or 0,  # cantidad
+                                float(row[8]) if row[8] is not None else 0.0,  # precio_unitario_venta
+                                float(row[9]) if row[9] is not None else 0.0  # subtotal
+                            ])
+                            yield output.getvalue()
+                            output.seek(0)
+                            output.truncate(0)
             finally:
                 conn.close()
         
