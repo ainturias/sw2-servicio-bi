@@ -25,13 +25,13 @@ def get_conn() -> Connection:
         ValueError: Si faltan variables de entorno requeridas
         psycopg.Error: Si hay un error al conectar con la base de datos
     """
-    # Leer variables de entorno como están definidas en Supabase
-    database = os.getenv("dbname", "postgres")
-    user = os.getenv("user")
-    password = os.getenv("password")
-    host = os.getenv("host", "aws-1-us-east-2.pooler.supabase.com")
-    port = os.getenv("port", "6543")
-    sslmode = "require"  # Siempre requerido para Supabase
+    # Leer variables de entorno con prefijo PG_
+    database = os.getenv("PG_DATABASE", os.getenv("dbname", "postgres"))
+    user = os.getenv("PG_USER", os.getenv("user"))
+    password = os.getenv("PG_PASSWORD", os.getenv("password"))
+    host = os.getenv("PG_HOST", os.getenv("host", "aws-1-us-east-2.pooler.supabase.com"))
+    port = os.getenv("PG_PORT", os.getenv("port", "6543"))
+    sslmode = os.getenv("PG_SSLMODE", "require")  # require para Supabase, disable para local
     
     # Validar variables requeridas
     if not database:

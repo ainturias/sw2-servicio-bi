@@ -45,17 +45,18 @@ def get_mongo_client() -> MongoClient:
 
 def get_pg_connection():
     """Conecta a PostgreSQL usando el Transaction Pooler de Supabase"""
-    database = os.getenv("dbname", "postgres")
-    user = os.getenv("user")
-    password = os.getenv("password")
-    host = os.getenv("host", "aws-1-us-east-2.pooler.supabase.com")
-    port = os.getenv("port", "6543")
+    database = os.getenv("PG_DATABASE", os.getenv("dbname", "postgres"))
+    user = os.getenv("PG_USER", os.getenv("user"))
+    password = os.getenv("PG_PASSWORD", os.getenv("password"))
+    host = os.getenv("PG_HOST", os.getenv("host", "aws-1-us-east-2.pooler.supabase.com"))
+    port = os.getenv("PG_PORT", os.getenv("port", "6543"))
+    sslmode = os.getenv("PG_SSLMODE", "require")
     
     if not all([user, password]):
-        raise ValueError("Variables de entorno de PostgreSQL (user, password) no están configuradas")
+        raise ValueError("Variables de entorno de PostgreSQL (PG_USER, PG_PASSWORD) no están configuradas")
     
     try:
-        conninfo = f"dbname={database} user={user} password={password} host={host} port={port} sslmode=require"
+        conninfo = f"dbname={database} user={user} password={password} host={host} port={port} sslmode={sslmode}"
         conn = psycopg.connect(conninfo)
         logger.info("Conexión a PostgreSQL establecida")
         return conn
