@@ -241,11 +241,36 @@ Para producción, usa un PostgreSQL gestionado (Neon, Supabase, ElephantSQL, Ren
 
 ## 🧪 Pruebas
 
+### Ejecutar suite completa de pruebas
+
+El proyecto incluye un script de pruebas automatizado que valida todos los endpoints:
+
+```bash
+# Asegúrate de que el servidor esté corriendo
+uvicorn app.main:app --host 127.0.0.1 --port 8001
+
+# En otra terminal, ejecuta las pruebas
+python test_completo.py
+```
+
+El script probará:
+- ✅ Health check y estado de sincronización
+- ✅ Dashboard con y sin filtros
+- ✅ Todos los KPIs (margen bruto, conversión, cancelación, CSAT)
+- ✅ Analytics (top destinos)
+- ✅ Exportación CSV
+- ✅ Reinicio manual de sincronización
+
+**Resultado esperado:** 11/11 pruebas exitosas (100%)
+
 ### Probar endpoints manualmente
 
 ```bash
 # Health check
 curl http://localhost:8000/health
+
+# Estado de sincronización
+curl http://localhost:8000/sync/status
 
 # Dashboard resumen
 curl "http://localhost:8000/dashboard/resumen?fecha_inicio=2024-01-01&fecha_fin=2024-01-31"
@@ -258,6 +283,9 @@ curl "http://localhost:8000/analytics/top-destinos?limit=5"
 
 # Export CSV
 curl "http://localhost:8000/export/ventas.csv?fecha_inicio=2024-01-01&fecha_fin=2024-01-31" -o ventas.csv
+
+# Reiniciar sincronización (si es necesario)
+curl -X POST http://localhost:8000/sync/restart
 ```
 
 ## 📚 Estructura del Proyecto
