@@ -544,6 +544,86 @@ def get_id_map(conn, table_name: str) -> Dict[str, int]:
         return {}
 
 
+def sync_data():
+    """
+    Función para sincronizar datos (versión simplificada de main)
+    Usada por la sincronización en tiempo real
+    """
+    try:
+        # Conectar a MongoDB
+        mongo_client = get_mongo_client()
+        mongo_db_name = os.getenv("MONGO_DATABASE", "agencia_viajes")
+        mongo_db = mongo_client[mongo_db_name]
+        
+        # Conectar a PostgreSQL
+        pg_conn = get_pg_connection()
+        pg_conn.autocommit = False
+        
+        try:
+            # Extraer datos de MongoDB
+            clientes_mongo = extract_collection(mongo_db, "clientes")
+            agentes_mongo = extract_collection(mongo_db, "agentes")
+            servicios_mongo = extract_collection(mongo_db, "servicios")
+            paquetes_mongo = extract_collection(mongo_db, "paquetesTuristicos")
+            ventas_mongo = extract_collection(mongo_db, "ventas")
+            detalles_mongo = extract_collection(mongo_db, "detalleVenta")
+            
+            # Transformar y cargar datos
+            # 1. Clientes
+            clientes_pg = [map_cliente(doc) for doc in clientes_mongo]
+            clientes_pg = [c for c in clientes_pg if c is not None]
+            upsert_clientes(pg_conn, clientes_pg)
+            pg_conn.commit()
+            
+            # 2. Agentes
+            agentes_pg = [map_agente(doc) for doc in agentes_mongo]
+            agentes_pg = [a for a in agentes_pg if a is not None]
+            upsert_agentes(pg_conn, agentes_pg)
+            pg_conn.commit()
+            
+            # 3. Servicios
+            servicios_pg = [map_servicio(doc) for doc in servicios_mongo]
+            servicios_pg = [s for s in servicios_pg if s is not None]
+            upsert_servicios(pg_conn, servicios_pg)
+            pg_conn.commit()
+            
+            # 4. Paquetes turísticos
+            paquetes_pg = [map_paquete_turistico(doc) for doc in paquetes_mongo]
+            paquetes_pg = [p for p in paquetes_pg if p is not None]
+            upsert_paquetes_turisticos(pg_conn, paquetes_pg)
+            pg_conn.commit()
+            
+            # Obtener mapas de IDs para relaciones
+            cliente_map = get_id_map(pg_conn, "clientes")
+            agente_map = get_id_map(pg_conn, "agentes")
+            servicio_map = get_id_map(pg_conn, "servicios")
+            paquete_map = get_id_map(pg_conn, "paquetes_turisticos")
+            
+            # 5. Ventas
+            ventas_pg = [map_venta(doc, cliente_map, agente_map) for doc in ventas_mongo]
+            ventas_pg = [v for v in ventas_pg if v is not None]
+            insertados, actualizados, venta_map = upsert_ventas(pg_conn, ventas_pg)
+            pg_conn.commit()
+            
+            # 6. Detalles de venta
+            detalles_pg = [map_detalle_venta(doc, venta_map, servicio_map, paquete_map) for doc in detalles_mongo]
+            detalles_pg = [d for d in detalles_pg if d is not None]
+            upsert_detalle_venta(pg_conn, detalles_pg)
+            pg_conn.commit()
+            
+        except Exception as e:
+            logger.error(f"Error durante sync_data: {e}")
+            pg_conn.rollback()
+            raise
+        finally:
+            pg_conn.close()
+            mongo_client.close()
+            
+    except Exception as e:
+        logger.error(f"Error en sync_data: {e}")
+        raise
+
+
 def main():
     """Función principal del ETL"""
     logger.info("=" * 60)
