@@ -127,6 +127,37 @@ async def sync_status():
     }
 
 
+@app.post("/sync/restart", tags=["Health"])
+async def restart_sync():
+    """
+    Endpoint para reiniciar manualmente la sincronización en tiempo real.
+    Útil si la sincronización se detiene por algún motivo.
+    """
+    import time
+    try:
+        logger.info("🔄 Reiniciando sincronización...")
+        stop_realtime_sync()
+        time.sleep(2)
+        if start_realtime_sync():
+            logger.info("✅ Sincronización reiniciada exitosamente")
+            return {
+                "status": "success",
+                "message": "Sincronización reiniciada exitosamente"
+            }
+        else:
+            logger.error("❌ No se pudo reiniciar la sincronización")
+            return {
+                "status": "error",
+                "message": "No se pudo reiniciar la sincronización"
+            }
+    except Exception as e:
+        logger.error(f"❌ Error al reiniciar sincronización: {e}")
+        return {
+            "status": "error",
+            "message": f"Error al reiniciar: {str(e)}"
+        }
+
+
 @app.get("/dashboard/resumen", response_model=DashboardResumenResponse, tags=["Dashboard"])
 async def obtener_resumen_dashboard(
     fecha_inicio: Optional[date] = None,

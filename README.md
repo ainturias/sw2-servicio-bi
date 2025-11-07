@@ -139,11 +139,25 @@ Verás en los logs:
 python test_realtime_sync.py
 ```
 
-## �📡 Endpoints Disponibles
+### ⚠️ Plan B: Reiniciar sincronización manualmente
+
+Si por alguna razón la sincronización se detiene, puedes reiniciarla usando:
+
+```bash
+# Desde terminal
+curl -X POST http://localhost:8000/sync/restart
+
+# O desde el navegador, ve a:
+# http://localhost:8000/docs
+# Y ejecuta el endpoint POST /sync/restart
+```
+
+## � Endpoints Disponibles
 
 ### Health Check
 - `GET /health` - Estado del servicio
 - `GET /sync/status` - Estado de la sincronización en tiempo real
+- `POST /sync/restart` - Reiniciar la sincronización manualmente (útil si se detiene)
 
 ### Dashboard
 - `GET /dashboard/resumen?fecha_inicio=2024-01-01&fecha_fin=2024-01-31`
