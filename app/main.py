@@ -6,13 +6,41 @@ from datetime import date
 import csv
 import io
 from app.db import get_conn
+from app.realtime_sync import start_realtime_sync, stop_realtime_sync
+import logging
 
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Business Intelligence Service",
-    description="Microservicio de Business Intelligence para agencia de viajes",
-    version="1.0.0"
+    description="Microservicio de Business Intelligence para agencia de viajes con sincronización en tiempo real",
+    version="2.0.0"
 )
+
+
+# Evento de inicio: iniciar sincronización en tiempo real
+@app.on_event("startup")
+async def startup_event():
+    """Iniciar la sincronización en tiempo real al arrancar la aplicación"""
+    logger.info("🚀 Iniciando aplicación...")
+    try:
+        if start_realtime_sync():
+            logger.info("✅ Sincronización en tiempo real activada")
+        else:
+            logger.warning("⚠️ No se pudo activar la sincronización en tiempo real")
+    except Exception as e:
+        logger.error(f"❌ Error al iniciar sincronización en tiempo real: {e}")
+
+
+# Evento de cierre: detener sincronización
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Detener la sincronización al cerrar la aplicación"""
+    logger.info("⏹️ Deteniendo aplicación...")
+    stop_realtime_sync()
+    logger.info("👋 Aplicación detenida")
 
 
 # Modelos Pydantic para respuestas
@@ -83,6 +111,20 @@ async def health_check() -> HealthResponse:
     Retorna el estado del microservicio.
     """
     return HealthResponse(status="ok")
+
+
+@app.get("/sync/status", tags=["Health"])
+async def sync_status():
+    """
+    Endpoint para verificar el estado de la sincronización en tiempo real.
+    Retorna si la sincronización está activa o no.
+    """
+    from app.realtime_sync import realtime_sync
+    return {
+        "sync_enabled": True,
+        "sync_running": realtime_sync.is_running,
+        "message": "Sincronización en tiempo real activa" if realtime_sync.is_running else "Sincronización no activa"
+    }
 
 
 @app.get("/dashboard/resumen", response_model=DashboardResumenResponse, tags=["Dashboard"])

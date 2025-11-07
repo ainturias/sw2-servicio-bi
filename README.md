@@ -1,10 +1,11 @@
 # Servicio de Business Intelligence - Agencia de Viajes
 
-Este es el microservicio de Business Intelligence (BI) para la agencia de viajes, diseñado para proporcionar KPIs, métricas y análisis de datos a través de una API REST.
+Este es el microservicio de Business Intelligence (BI) para la agencia de viajes, diseñado para proporcionar KPIs, métricas y análisis de datos a través de una API REST con sincronización en tiempo real.
 
 ## 🚀 Características
 
-- **ETL Automatizado**: Sincronización de datos desde MongoDB Atlas a PostgreSQL
+- **🔄 Sincronización en Tiempo Real**: Usa MongoDB Change Streams para actualizar PostgreSQL automáticamente cuando hay cambios
+- **ETL Automatizado**: Sincronización inicial de datos desde MongoDB Atlas a PostgreSQL
 - **API REST**: Endpoints FastAPI para consulta de KPIs y métricas
 - **KPIs de Negocio**: 
   - Margen bruto
@@ -12,7 +13,7 @@ Este es el microservicio de Business Intelligence (BI) para la agencia de viajes
   - Tasa de cancelación
   - Satisfacción del cliente (CSAT)
 - **Análisis de Datos**:
-  - Dashboard con métricas principales
+  - Dashboard con métricas principales siempre actualizados
   - Top destinos por ingresos
   - Tendencias de reservas por día
 - **Exportación**: Datos de ventas en formato CSV
@@ -32,13 +33,14 @@ Este es el microservicio de Business Intelligence (BI) para la agencia de viajes
 servicio-bi/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py        # Endpoints FastAPI
-│   ├── db.py         # Conexión PostgreSQL
-│   └── etl.py        # Script ETL MongoDB → PostgreSQL
+│   ├── main.py           # Endpoints FastAPI
+│   ├── db.py            # Conexión PostgreSQL
+│   ├── etl.py           # Script ETL MongoDB → PostgreSQL
+│   └── realtime_sync.py # Sincronización en tiempo real
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
-├── init.sql          # Esquema PostgreSQL
+├── init.sql             # Esquema PostgreSQL
 └── README.md
 ```
 
@@ -85,10 +87,63 @@ O si estás dentro del contenedor:
 docker-compose exec servicio-bi python -m app.etl
 ```
 
-## 📡 Endpoints Disponibles
+## � Sincronización en Tiempo Real
+
+**¡NUEVA FUNCIONALIDAD!** El servicio ahora incluye sincronización automática en tiempo real.
+
+### ¿Cómo funciona?
+
+Cuando inicias el servidor FastAPI, automáticamente se activa un proceso que:
+
+1. **Monitorea MongoDB**: Usa MongoDB Change Streams para detectar cambios en tiempo real
+2. **Sincroniza Automáticamente**: Cuando detecta un INSERT, UPDATE o DELETE en MongoDB, ejecuta la sincronización inmediatamente
+3. **Mantiene Datos Actualizados**: Los KPIs y dashboards siempre muestran información actual
+
+### Colecciones monitoreadas
+
+- `clientes`
+- `agentes`
+- `servicios`
+- `paquetes_turisticos`
+- `ventas`
+- `detalle_venta`
+
+### Ventajas
+
+✅ **Dashboards siempre actualizados**: No necesitas ejecutar ETL manualmente  
+✅ **Respuesta inmediata**: Los cambios en MongoDB se reflejan en PostgreSQL en segundos  
+✅ **Transparente**: No requiere configuración adicional, funciona automáticamente  
+✅ **Ideal para integración**: Perfecto cuando el frontend/backend necesita datos en tiempo real
+
+### Iniciar el servidor con sincronización
+
+```bash
+# La sincronización se inicia automáticamente al ejecutar:
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Verás en los logs:
+```
+🚀 Iniciando aplicación...
+✅ Conectado a MongoDB para sincronización en tiempo real
+👀 Iniciando monitoreo de cambios en base de datos: agencia_viajes
+🔄 Monitoreo activo. Esperando cambios en MongoDB...
+✅ Sincronización en tiempo real activada
+```
+
+### Probar la sincronización
+
+```bash
+# Ejecutar script de prueba que inserta un cliente en MongoDB
+# y verifica que se sincroniza a PostgreSQL
+python test_realtime_sync.py
+```
+
+## �📡 Endpoints Disponibles
 
 ### Health Check
 - `GET /health` - Estado del servicio
+- `GET /sync/status` - Estado de la sincronización en tiempo real
 
 ### Dashboard
 - `GET /dashboard/resumen?fecha_inicio=2024-01-01&fecha_fin=2024-01-31`
