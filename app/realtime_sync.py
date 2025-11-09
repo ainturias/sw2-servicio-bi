@@ -5,7 +5,7 @@ Usa Change Streams de MongoDB para detectar cambios y actualizar PostgreSQL auto
 import os
 import logging
 from pymongo import MongoClient
-from threading import Thread
+from threading import Thread, Event
 import time
 from app.etl import sync_data
 
@@ -25,6 +25,8 @@ class RealtimeSync:
         self.client = None
         self.is_running = False
         self._thread = None
+        # Event para señalizar parada ordenada desde el proceso principal
+        self._stop_event = Event()
         
     def connect(self):
         """Conectar a MongoDB"""
@@ -69,7 +71,7 @@ class RealtimeSync:
 
                 for change in stream:
                     # Permitir salida rápida si alguien pidió detener
-                    if not self.is_running:
+                    if self._stop_event.is_set() or not self.is_running:
                         logger.info("🔹 Detención solicitada, saliendo del bucle de change stream")
                         break
 
@@ -82,12 +84,17 @@ class RealtimeSync:
                     if collection in collections_to_watch:
                         logger.info(f"🔔 Cambio detectado: {operation} en {collection}")
 
-                        # Ejecutar sincronización
+                        # Ejecutar sincronización si no hay señal de parada
+                        if self._stop_event.is_set():
+                            logger.info("🔸 Stop event set - no se inicia sincronización")
+                            break
+
                         try:
                             logger.info("🔄 Iniciando sincronización de datos...")
                             sync_data()
                             logger.info("✅ Sincronización completada exitosamente")
                         except Exception as e:
+                            # Evitar que una excepción en sync_data detenga el worker completo
                             logger.error(f"❌ Error durante la sincronización: {e}")
 
         except Exception as e:
@@ -99,8 +106,8 @@ class RealtimeSync:
         if not self.connect():
             logger.error("❌ No se pudo iniciar la sincronización en tiempo real")
             return False
-
-        # Iniciar el monitoreo en un hilo separado y guardar referencia
+        # Resetear flag de parada e iniciar el monitoreo en un hilo separado
+        self._stop_event.clear()
         self._thread = Thread(target=self.watch_changes, daemon=True)
         self._thread.start()
         logger.info("🚀 Sincronización en tiempo real iniciada")
@@ -109,10 +116,12 @@ class RealtimeSync:
     def stop(self):
         """Detener el monitoreo"""
         logger.info("⏹️ Solicitud de detención de sincronización en tiempo real recibida")
-        # Señalar al hilo que debe terminar
+        # Señalizamos la parada para que el worker deje de iniciar nuevas sincronizaciones
+        self._stop_event.set()
         self.is_running = False
 
-        # Cerrar cliente si existe (esto ayuda a que db.watch() termine)
+        # Intentamos cerrar el cliente para desbloquear db.watch(), pero lo hacemos
+        # de forma segura dentro de try/except
         if self.client:
             try:
                 self.client.close()
@@ -120,11 +129,11 @@ class RealtimeSync:
             except Exception as e:
                 logger.warning(f"⚠️ Error cerrando cliente MongoDB: {e}")
 
-        # Intentar unir (join) el hilo hasta un timeout para evitar workers huérfanos
+        # Esperar a que el hilo termine (si está activo)
         if self._thread and self._thread.is_alive():
             logger.info("🔁 Esperando que el hilo de monitoreo termine...")
             try:
-                self._thread.join(timeout=5)
+                self._thread.join(timeout=10)
                 if self._thread.is_alive():
                     logger.warning("⚠️ El hilo de monitoreo no terminó tras el timeout")
                 else:

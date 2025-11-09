@@ -544,13 +544,31 @@ def sync_data():
     Usada por la sincronización en tiempo real
     """
     try:
+        # Evitar iniciar la sincronización si el worker está en proceso de parada
+        try:
+            from app.realtime_sync import realtime_sync
+            if getattr(realtime_sync, '_stop_event', None) is not None and realtime_sync._stop_event.is_set():
+                logger.info("sync_data: stop event set, abortando sincronización")
+                return
+        except Exception:
+            # Si no se puede importar el realtime_sync por alguna razón, continuar
+            pass
+
         # Conectar a MongoDB
         mongo_client = get_mongo_client()
         mongo_db_name = os.getenv("MONGO_DATABASE", "agencia_viajes")
         mongo_db = mongo_client[mongo_db_name]
         
         # Conectar a PostgreSQL
-        pg_conn = get_pg_connection()
+        try:
+            pg_conn = get_pg_connection()
+        except Exception as e:
+            logger.error(f"sync_data: no se pudo obtener conexión a PostgreSQL: {e}")
+            try:
+                mongo_client.close()
+            except Exception:
+                pass
+            return
         pg_conn.autocommit = False
         
         try:
