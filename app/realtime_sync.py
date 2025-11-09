@@ -89,11 +89,24 @@ class RealtimeSync:
                             logger.info("🔸 Stop event set - no se inicia sincronización")
                             break
 
+                        # Re-check justo antes de iniciar la sincronización para evitar
+                        # iniciar trabajo pesado si ya estamos en proceso de parada
+                        if self._stop_event.is_set():
+                            logger.info("� Stop event set (v2) - abortando sincronización")
+                            break
+
                         try:
-                            logger.info("🔄 Iniciando sincronización de datos...")
+                            logger.info("�🔄 Iniciando sincronización de datos...")
                             sync_data()
                             logger.info("✅ Sincronización completada exitosamente")
                         except Exception as e:
+                            # Si el error viene de un pool cerrado durante el shutdown,
+                            # lo tratamos como información y paramos el worker para evitar
+                            # logs ruidosos durante el apagado.
+                            msg = str(e).lower()
+                            if 'closed connection pool' in msg or 'connection pool is closed' in msg:
+                                logger.info("ℹ️ Sincronización abortada por pool cerrado (probable shutdown)")
+                                break
                             # Evitar que una excepción en sync_data detenga el worker completo
                             logger.error(f"❌ Error durante la sincronización: {e}")
 
@@ -120,26 +133,27 @@ class RealtimeSync:
         self._stop_event.set()
         self.is_running = False
 
-        # Intentamos cerrar el cliente para desbloquear db.watch(), pero lo hacemos
-        # de forma segura dentro de try/except
-        if self.client:
-            try:
-                self.client.close()
-                logger.info("🔌 Cliente MongoDB cerrado")
-            except Exception as e:
-                logger.warning(f"⚠️ Error cerrando cliente MongoDB: {e}")
-
-        # Esperar a que el hilo termine (si está activo)
+        # Esperar a que el hilo termine (si está activo). No cerramos el cliente
+        # inmediatamente para evitar condiciones de carrera donde el thread
+        # todavía procesa un change y abre conexiones a Postgres.
         if self._thread and self._thread.is_alive():
             logger.info("🔁 Esperando que el hilo de monitoreo termine...")
             try:
-                self._thread.join(timeout=10)
+                self._thread.join(timeout=15)
                 if self._thread.is_alive():
                     logger.warning("⚠️ El hilo de monitoreo no terminó tras el timeout")
                 else:
                     logger.info("✅ Hilo de monitoreo finalizado")
             except Exception as e:
                 logger.warning(f"⚠️ Error al unir hilo de monitoreo: {e}")
+
+        # Ahora es seguro cerrar el cliente MongoDB (si existe)
+        if self.client:
+            try:
+                self.client.close()
+                logger.info("🔌 Cliente MongoDB cerrado")
+            except Exception as e:
+                logger.warning(f"⚠️ Error cerrando cliente MongoDB: {e}")
 
         logger.info("⏹️ Sincronización en tiempo real detenida")
 
