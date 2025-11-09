@@ -13,6 +13,7 @@ from datetime import datetime
 import pymongo
 from pymongo import MongoClient
 import psycopg
+import time
 from dotenv import load_dotenv
 
 # Cargar variables de entorno desde .env si existe
@@ -55,14 +56,28 @@ def get_pg_connection():
     if not all([user, password]):
         raise ValueError("Variables de entorno de PostgreSQL (PG_USER, PG_PASSWORD) no están configuradas")
     
-    try:
-        conninfo = f"dbname={database} user={user} password={password} host={host} port={port} sslmode={sslmode}"
-        conn = psycopg.connect(conninfo)
-        logger.info("Conexión a PostgreSQL establecida")
-        return conn
-    except Exception as e:
-        logger.error(f"Error al conectar a PostgreSQL: {e}")
-        raise
+    # Reintentos simples con backoff exponencial para conexiones transitorias
+    max_attempts = 3
+    backoffs = [1, 2, 4]
+    last_exc = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            conninfo = f"dbname={database} user={user} password={password} host={host} port={port} sslmode={sslmode}"
+            conn = psycopg.connect(conninfo)
+            logger.info("Conexión a PostgreSQL establecida")
+            return conn
+        except Exception as e:
+            last_exc = e
+            msg = str(e).lower()
+            logger.warning(f"Intento {attempt}/{max_attempts} - error conectando a PostgreSQL: {e}")
+            # Si no quedan intentos, propagar
+            if attempt == max_attempts:
+                logger.error(f"Error al conectar a PostgreSQL tras {max_attempts} intentos: {e}")
+                raise
+            # Sleep con backoff antes del siguiente intento
+            sleep_for = backoffs[min(attempt - 1, len(backoffs) - 1)]
+            logger.info(f"Reintentando en {sleep_for}s...")
+            time.sleep(sleep_for)
 
 
 def extract_collection(mongo_db, collection_name: str) -> List[Dict[str, Any]]:
@@ -543,7 +558,12 @@ def sync_data():
     Función para sincronizar datos (versión simplificada de main)
     Usada por la sincronización en tiempo real
     """
-    try:
+    # Hacemos varios intentos completos de sincronización (ETL) para cubrir
+    # fallos transitorios como pools cerrados o conexiones temporales.
+    max_attempts = 3
+    backoffs = [1, 2, 4]
+
+    for attempt in range(1, max_attempts + 1):
         # Evitar iniciar la sincronización si el worker está en proceso de parada
         try:
             from app.realtime_sync import realtime_sync
@@ -554,24 +574,24 @@ def sync_data():
             # Si no se puede importar el realtime_sync por alguna razón, continuar
             pass
 
-        # Conectar a MongoDB
-        mongo_client = get_mongo_client()
-        mongo_db_name = os.getenv("MONGO_DATABASE", "agencia_viajes")
-        mongo_db = mongo_client[mongo_db_name]
-        
-        # Conectar a PostgreSQL
+        mongo_client = None
+        pg_conn = None
         try:
-            pg_conn = get_pg_connection()
-        except Exception as e:
-            logger.error(f"sync_data: no se pudo obtener conexión a PostgreSQL: {e}")
+            logger.info(f"sync_data: intento {attempt}/{max_attempts}")
+            # Conectar a MongoDB
+            mongo_client = get_mongo_client()
+            mongo_db_name = os.getenv("MONGO_DATABASE", "agencia_viajes")
+            mongo_db = mongo_client[mongo_db_name]
+
+            # Conectar a PostgreSQL (get_pg_connection tiene reintentos)
             try:
-                mongo_client.close()
-            except Exception:
-                pass
-            return
-        pg_conn.autocommit = False
-        
-        try:
+                pg_conn = get_pg_connection()
+            except Exception as e:
+                logger.error(f"sync_data: no se pudo obtener conexión a PostgreSQL: {e}")
+                raise
+
+            pg_conn.autocommit = False
+
             # Extraer datos de MongoDB
             clientes_mongo = extract_collection(mongo_db, "clientes")
             agentes_mongo = extract_collection(mongo_db, "agentes")
@@ -579,61 +599,109 @@ def sync_data():
             paquetes_mongo = extract_collection(mongo_db, "paquetesTuristicos")
             ventas_mongo = extract_collection(mongo_db, "ventas")
             detalles_mongo = extract_collection(mongo_db, "detalleVenta")
-            
+
             # Transformar y cargar datos
-            # 1. Clientes
             clientes_pg = [map_cliente(doc) for doc in clientes_mongo]
             clientes_pg = [c for c in clientes_pg if c is not None]
             upsert_clientes(pg_conn, clientes_pg)
             pg_conn.commit()
-            
-            # 2. Agentes
+
             agentes_pg = [map_agente(doc) for doc in agentes_mongo]
             agentes_pg = [a for a in agentes_pg if a is not None]
             upsert_agentes(pg_conn, agentes_pg)
             pg_conn.commit()
-            
-            # 3. Servicios
+
             servicios_pg = [map_servicio(doc) for doc in servicios_mongo]
             servicios_pg = [s for s in servicios_pg if s is not None]
             upsert_servicios(pg_conn, servicios_pg)
             pg_conn.commit()
-            
-            # 4. Paquetes turísticos
+
             paquetes_pg = [map_paquete_turistico(doc) for doc in paquetes_mongo]
             paquetes_pg = [p for p in paquetes_pg if p is not None]
             upsert_paquetes_turisticos(pg_conn, paquetes_pg)
             pg_conn.commit()
-            
-            # Obtener mapas de IDs para relaciones
+
             cliente_map = get_id_map(pg_conn, "clientes")
             agente_map = get_id_map(pg_conn, "agentes")
             servicio_map = get_id_map(pg_conn, "servicios")
             paquete_map = get_id_map(pg_conn, "paquetes_turisticos")
-            
-            # 5. Ventas
+
             ventas_pg = [map_venta(doc, cliente_map, agente_map) for doc in ventas_mongo]
             ventas_pg = [v for v in ventas_pg if v is not None]
             insertados, actualizados, venta_map = upsert_ventas(pg_conn, ventas_pg)
             pg_conn.commit()
-            
-            # 6. Detalles de venta
+
             detalles_pg = [map_detalle_venta(doc, venta_map, servicio_map, paquete_map) for doc in detalles_mongo]
             detalles_pg = [d for d in detalles_pg if d is not None]
             upsert_detalle_venta(pg_conn, detalles_pg)
             pg_conn.commit()
-            
+
+            # Si llegamos aquí, la sincronización fue exitosa
+            logger.info("sync_data: sincronización completada con éxito")
+            # Cerrar conexiones y salir
+            try:
+                if pg_conn:
+                    pg_conn.close()
+            except Exception:
+                pass
+            try:
+                if mongo_client:
+                    mongo_client.close()
+            except Exception:
+                pass
+            return
+
         except Exception as e:
-            logger.error(f"Error durante sync_data: {e}")
-            pg_conn.rollback()
-            raise
-        finally:
-            pg_conn.close()
-            mongo_client.close()
-            
-    except Exception as e:
-        logger.error(f"Error en sync_data: {e}")
-        raise
+            # Si el stop event está seteado, abortar inmediatamente
+            try:
+                from app.realtime_sync import realtime_sync
+                if getattr(realtime_sync, '_stop_event', None) is not None and realtime_sync._stop_event.is_set():
+                    logger.info("sync_data: stop event set durante intento - abortando")
+                    try:
+                        if pg_conn:
+                            pg_conn.close()
+                    except Exception:
+                        pass
+                    try:
+                        if mongo_client:
+                            mongo_client.close()
+                    except Exception:
+                        pass
+                    return
+            except Exception:
+                pass
+
+            msg = str(e).lower()
+            logger.warning(f"sync_data: intento {attempt} falló: {e}")
+            # Si fue el último intento, registrar y salir
+            if attempt == max_attempts:
+                logger.error(f"sync_data: falló después de {max_attempts} intentos: {e}")
+                try:
+                    if pg_conn:
+                        pg_conn.close()
+                except Exception:
+                    pass
+                try:
+                    if mongo_client:
+                        mongo_client.close()
+                except Exception:
+                    pass
+                return
+
+            # Sleep con backoff antes de reintentar
+            sleep_for = backoffs[min(attempt - 1, len(backoffs) - 1)]
+            logger.info(f"sync_data: reintentando en {sleep_for}s...")
+            try:
+                if pg_conn:
+                    pg_conn.close()
+            except Exception:
+                pass
+            try:
+                if mongo_client:
+                    mongo_client.close()
+            except Exception:
+                pass
+            time.sleep(sleep_for)
 
 
 def main():
