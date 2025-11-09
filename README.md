@@ -226,7 +226,31 @@ Para producción, usa un PostgreSQL gestionado (Neon, Supabase, ElephantSQL, Ren
 3. Configura las demás variables según tu proveedor
 4. Despliega el servicio (puedes usar el mismo Dockerfile)
 
-## 📝 Variables de Entorno
+## � Despliegue con Docker (local / pruebas)
+
+Incluye un `docker-compose.yml` que levanta PostgreSQL, MongoDB y la API. Para levantar el stack en tu máquina:
+
+```powershell
+# Construir y levantar contenedores (Windows PowerShell)
+docker-compose up --build -d
+
+# Ver logs del servicio API
+docker-compose logs -f servicio-bi
+
+# Parar y eliminar recursos
+docker-compose down -v
+```
+
+Variables importantes (puedes cambiar en el `docker-compose.yml` o usar un `.env`):
+
+- `PG_DATABASE`, `PG_USER`, `PG_PASSWORD`, `PG_HOST`, `PG_PORT`
+- `MONGO_URI` (en compose se define como `mongodb://mongo:27017` cuando se usa el servicio `mongo`)
+- `MONGO_DATABASE`
+- `BI_AUTH_TOKEN`, `BI_BASE_URL`
+
+Después de levantar, la API estará disponible en `http://localhost:8000`.
+
+## �📝 Variables de Entorno
 
 | Variable | Descripción | Requerido | Default |
 |----------|-------------|-----------|---------|

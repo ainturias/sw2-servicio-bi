@@ -32,14 +32,32 @@ services:
       PG_PASSWORD: 7550
       PG_HOST: postgres
       PG_PORT: 5432
+      # MongoDB local (contenedor) - usado por la sincronización en tiempo real
+      MONGO_URI: "mongodb://mongo:27017"
+      MONGO_DATABASE: agencia_viajes
+      # Ejemplo de token para pruebas (reemplazar en producción)
+      BI_AUTH_TOKEN: "changeme"
+      BI_BASE_URL: "http://localhost:8000"
     ports:
       - "8000:8000"
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
+      - mongo
     networks:
       - bi-network
     restart: unless-stopped
+
+  mongo:
+    image: mongo:6.0
+    container_name: servicio-bi-mongo
+    environment:
+      MONGO_INITDB_DATABASE: agencia_viajes
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - bi-network
 
 networks:
   bi-network:
