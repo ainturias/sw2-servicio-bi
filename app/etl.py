@@ -47,39 +47,25 @@ def get_mongo_client() -> MongoClient:
 def get_pg_connection():
     """Conecta a PostgreSQL usando el Transaction Pooler de Supabase
     
-    IMPORTANTE: Esta función devuelve directamente una conexión (no un context manager).
-    El llamador es responsable de cerrar la conexión cuando termine de usarla.
+    IMPORTANTE: ETL usa conexiones directas (no del pool) para evitar problemas
+    con transacciones de larga duración y context managers.
     """
-    # Usar el pool central si está disponible (implementado en app.db)
-    try:
-        from app.db import _POOL
-    except Exception:
-        _POOL = None
-
-    # Reintentos simples con backoff exponencial para conexiones transitorias
+    # Siempre usar conexión directa para ETL
+    # El pool se usa solo para endpoints HTTP de corta duración
     max_attempts = 3
     backoffs = [1, 2, 4]
 
     for attempt in range(1, max_attempts + 1):
         try:
-            if _POOL is not None:
-                # Obtener conexión del pool usando context manager
-                # Necesitamos entrar al context manager para obtener la conexión real
-                conn_context = _POOL.connection()
-                conn = conn_context.__enter__()
-                logger.info("Conexión a PostgreSQL (pool) establecida")
-            else:
-                # Fallback: conexión directa
-                database = os.getenv("PG_DATABASE", os.getenv("dbname", "postgres"))
-                user = os.getenv("PG_USER", os.getenv("user"))
-                password = os.getenv("PG_PASSWORD", os.getenv("password"))
-                host = os.getenv("PG_HOST", os.getenv("host", "aws-1-us-east-2.pooler.supabase.com"))
-                port = os.getenv("PG_PORT", os.getenv("port", "6543"))
-                sslmode = os.getenv("PG_SSLMODE", "require")
-                conninfo = f"dbname={database} user={user} password={password} host={host} port={port} sslmode={sslmode}"
-                conn = psycopg.connect(conninfo)
-                logger.info("Conexión a PostgreSQL (directa) establecida")
-
+            database = os.getenv("PG_DATABASE", os.getenv("dbname", "postgres"))
+            user = os.getenv("PG_USER", os.getenv("user"))
+            password = os.getenv("PG_PASSWORD", os.getenv("password"))
+            host = os.getenv("PG_HOST", os.getenv("host", "aws-1-us-east-2.pooler.supabase.com"))
+            port = os.getenv("PG_PORT", os.getenv("port", "6543"))
+            sslmode = os.getenv("PG_SSLMODE", "require")
+            conninfo = f"dbname={database} user={user} password={password} host={host} port={port} sslmode={sslmode}"
+            conn = psycopg.connect(conninfo)
+            logger.info("Conexión a PostgreSQL (directa) establecida para ETL")
             return conn
         except Exception as e:
             logger.warning(f"Intento {attempt}/{max_attempts} - error conectando a PostgreSQL: {e}")
