@@ -244,6 +244,60 @@ async def sync_once():
         }
 
 
+@app.get("/debug/ventas-estados", tags=["Debug"])
+async def get_ventas_estados():
+    """
+    Endpoint de debug para ver todas las ventas y sus estados en PostgreSQL.
+    """
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT 
+                        id, 
+                        estado, 
+                        monto, 
+                        fecha_venta,
+                        origen_id
+                    FROM ventas
+                    ORDER BY fecha_venta DESC
+                """)
+                
+                ventas = []
+                for row in cur.fetchall():
+                    ventas.append({
+                        "id": row[0],
+                        "estado": row[1],
+                        "monto": float(row[2]) if row[2] else 0.0,
+                        "fecha_venta": row[3].isoformat() if row[3] else None,
+                        "origen_id": row[4]
+                    })
+                
+                # Contar por estado
+                cur.execute("""
+                    SELECT estado, COUNT(*), SUM(monto)
+                    FROM ventas
+                    GROUP BY estado
+                    ORDER BY COUNT(*) DESC
+                """)
+                
+                resumen_estados = []
+                for row in cur.fetchall():
+                    resumen_estados.append({
+                        "estado": row[0] or "NULL",
+                        "cantidad": row[1],
+                        "monto_total": float(row[2]) if row[2] else 0.0
+                    })
+                
+                return {
+                    "total_ventas": len(ventas),
+                    "ventas": ventas,
+                    "resumen_por_estado": resumen_estados
+                }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/debug/mongo-counts", tags=["Debug"])
 async def get_mongo_counts():
     """
