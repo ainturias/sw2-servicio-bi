@@ -1245,15 +1245,52 @@ async def simple_check():
 @app.get("/debug/check-ventas", tags=["Debug"])
 async def check_ventas():
     """
-    Verificar el estado de las ventas en PostgreSQL.
-    Muestra cuántas ventas hay por estado y los primeros registros.
+    Verificar el estado de las ventas en MongoDB y PostgreSQL.
+    Muestra datos crudos de ambas fuentes para diagnosticar problemas.
     """
+    import os
+    from pymongo import MongoClient
+    from bson import ObjectId
+    from datetime import datetime
+    
     try:
+        results = {}
+        
+        # 1. Verificar MongoDB
+        mongo_uri = os.getenv("MONGO_URI")
+        mongo_db_name = os.getenv("MONGO_DATABASE", "agencia_viajes")
+        mongo_client = MongoClient(mongo_uri)
+        mongo_db = mongo_client[mongo_db_name]
+        
+        # Contar ventas en MongoDB
+        mongo_ventas_count = mongo_db.ventas.count_documents({})
+        results["mongo_ventas_total"] = mongo_ventas_count
+        
+        # Obtener muestra de ventas de MongoDB (datos crudos)
+        mongo_ventas_sample = []
+        for venta in mongo_db.ventas.find().limit(3):
+            # Convertir ObjectId a string para JSON
+            venta_dict = {}
+            for key, value in venta.items():
+                if isinstance(value, ObjectId):
+                    venta_dict[key] = str(value)
+                elif isinstance(value, datetime):
+                    venta_dict[key] = value.isoformat()
+                else:
+                    venta_dict[key] = value
+            mongo_ventas_sample.append(venta_dict)
+        
+        results["mongo_ventas_sample"] = mongo_ventas_sample
+        
+        mongo_client.close()
+        
+        # 2. Verificar PostgreSQL
         with get_conn() as conn:
             with conn.cursor() as cur:
                 # Contar ventas totales
                 cur.execute("SELECT COUNT(*) FROM ventas")
-                total_ventas = cur.fetchone()[0]
+                pg_ventas_total = cur.fetchone()[0]
+                results["pg_ventas_total"] = pg_ventas_total
                 
                 # Contar por estado
                 cur.execute("""
@@ -1261,17 +1298,20 @@ async def check_ventas():
                     FROM ventas 
                     GROUP BY estado
                 """)
-                ventas_por_estado = {row[0]: row[1] for row in cur.fetchall()}
+                ventas_por_estado = {}
+                for row in cur.fetchall():
+                    ventas_por_estado[row[0]] = row[1]
+                results["pg_ventas_por_estado"] = ventas_por_estado
                 
-                # Obtener muestra de ventas
+                # Obtener muestra de ventas de PostgreSQL
                 cur.execute("""
                     SELECT id, origen_id, fecha_venta, estado, monto, cliente_id, agente_id
                     FROM ventas
-                    LIMIT 5
+                    LIMIT 3
                 """)
-                ventas_sample = []
+                pg_ventas_sample = []
                 for row in cur.fetchall():
-                    ventas_sample.append({
+                    pg_ventas_sample.append({
                         "id": row[0],
                         "origen_id": row[1],
                         "fecha_venta": row[2].isoformat() if row[2] else None,
@@ -1280,42 +1320,14 @@ async def check_ventas():
                         "cliente_id": row[5],
                         "agente_id": row[6]
                     })
-                
-                # Contar detalle_venta
-                cur.execute("SELECT COUNT(*) FROM detalle_venta")
-                total_detalles = cur.fetchone()[0]
-                
-                # Muestra de detalle_venta
-                cur.execute("""
-                    SELECT id, venta_id, servicio_id, paquete_id, cantidad, precio_unitario_venta, subtotal
-                    FROM detalle_venta
-                    LIMIT 5
-                """)
-                detalles_sample = []
-                for row in cur.fetchall():
-                    detalles_sample.append({
-                        "id": row[0],
-                        "venta_id": row[1],
-                        "servicio_id": row[2],
-                        "paquete_id": row[3],
-                        "cantidad": row[4],
-                        "precio_unitario_venta": float(row[5]) if row[5] else 0.0,
-                        "subtotal": float(row[6]) if row[6] else 0.0
-                    })
+                results["pg_ventas_sample"] = pg_ventas_sample
         
         return {
             "status": "success",
-            "ventas": {
-                "total": total_ventas,
-                "por_estado": ventas_por_estado,
-                "muestra": ventas_sample
-            },
-            "detalle_venta": {
-                "total": total_detalles,
-                "muestra": detalles_sample
-            }
+            "data": results
         }
         
     except Exception as e:
         logger.error(f"❌ Error en check ventas: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
