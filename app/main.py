@@ -325,6 +325,98 @@ async def get_ventas_estados():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/debug/compare-ventas", tags=["Debug"])
+async def compare_ventas_mongo_postgres():
+    """
+    Compara estados de ventas entre MongoDB y PostgreSQL.
+    Útil para detectar desfases de sincronización.
+    """
+    import os
+    from pymongo import MongoClient
+    
+    try:
+        # Conectar a MongoDB
+        mongo_uri = os.getenv("MONGO_URI")
+        mongo_db_name = os.getenv("MONGO_DATABASE", "agencia_viajes")
+        mongo_client = MongoClient(mongo_uri)
+        mongo_db = mongo_client[mongo_db_name]
+        
+        # Obtener ventas de MongoDB
+        ventas_mongo = list(mongo_db.ventas.find({}, {
+            '_id': 1,
+            'estadoVenta': 1,
+            'montoTotal': 1
+        }))
+        
+        # Obtener ventas de PostgreSQL
+        ventas_postgres = {}
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT origen_id, estado, monto
+                    FROM ventas
+                """)
+                for row in cur.fetchall():
+                    ventas_postgres[row[0]] = {
+                        'estado': row[1],
+                        'monto': float(row[2]) if row[2] else 0.0
+                    }
+        
+        mongo_client.close()
+        
+        # Comparar
+        comparacion = []
+        for venta_mongo in ventas_mongo:
+            origen_id = str(venta_mongo['_id'])
+            estado_mongo = (venta_mongo.get('estadoVenta') or '').lower()
+            monto_mongo = venta_mongo.get('montoTotal', 0)
+            
+            if origen_id in ventas_postgres:
+                estado_pg = ventas_postgres[origen_id]['estado']
+                monto_pg = ventas_postgres[origen_id]['monto']
+                
+                sincronizado = (estado_mongo == estado_pg)
+                
+                comparacion.append({
+                    'origen_id': origen_id,
+                    'mongo': {
+                        'estado': estado_mongo,
+                        'monto': monto_mongo
+                    },
+                    'postgres': {
+                        'estado': estado_pg,
+                        'monto': monto_pg
+                    },
+                    'sincronizado': sincronizado,
+                    'diferencia_estado': estado_mongo != estado_pg
+                })
+            else:
+                comparacion.append({
+                    'origen_id': origen_id,
+                    'mongo': {
+                        'estado': estado_mongo,
+                        'monto': monto_mongo
+                    },
+                    'postgres': None,
+                    'sincronizado': False,
+                    'nota': 'No existe en PostgreSQL'
+                })
+        
+        # Resumen
+        total = len(comparacion)
+        sincronizados = sum(1 for c in comparacion if c.get('sincronizado', False))
+        
+        return {
+            'total_ventas': total,
+            'sincronizadas': sincronizados,
+            'desincronizadas': total - sincronizados,
+            'comparacion': comparacion
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/debug/mongo-counts", tags=["Debug"])
 async def get_mongo_counts():
     """
