@@ -90,60 +90,116 @@ def extract_collection(mongo_db, collection_name: str) -> List[Dict[str, Any]]:
 
 
 def extract_clientes_with_usuarios(mongo_db) -> List[Dict[str, Any]]:
-    """Extrae clientes haciendo lookup con usuarios para obtener nombre, email, etc."""
+    """Extrae clientes haciendo lookup con usuarios para obtener nombre, email, etc.
+    
+    IMPORTANTE: El usuarioId en MongoDB puede estar como String en vez de ObjectId.
+    Esta función convierte String a ObjectId antes del lookup.
+    """
+    from bson import ObjectId
+    
     try:
         clientes_collection = mongo_db['clientes']
-        # Agregación para hacer lookup con usuarios
+        
+        # Agregación con conversión de String a ObjectId y lookup
         pipeline = [
+            # Paso 1: Convertir usuarioId de String a ObjectId si es necesario
+            {
+                '$addFields': {
+                    'usuarioIdConverted': {
+                        '$cond': {
+                            'if': {'$eq': [{'$type': '$usuarioId'}, 'string']},
+                            'then': {'$toObjectId': '$usuarioId'},
+                            'else': '$usuarioId'
+                        }
+                    }
+                }
+            },
+            # Paso 2: Lookup usando el campo convertido
             {
                 '$lookup': {
                     'from': 'usuarios',
-                    'localField': 'usuarioId',
+                    'localField': 'usuarioIdConverted',
                     'foreignField': '_id',
                     'as': 'usuario'
                 }
             },
+            # Paso 3: Unwind para obtener el usuario como objeto (no array)
             {
                 '$unwind': {
                     'path': '$usuario',
                     'preserveNullAndEmptyArrays': False  # Solo clientes con usuario válido
                 }
+            },
+            # Paso 4: Limpiar el campo temporal
+            {
+                '$project': {
+                    'usuarioIdConverted': 0
+                }
             }
         ]
+        
         data = list(clientes_collection.aggregate(pipeline))
-        logger.info(f"Extraídos {len(data)} clientes con lookup de usuarios")
+        logger.info(f"✅ Extraídos {len(data)} clientes con lookup de usuarios (usuarioId convertido de String a ObjectId)")
         return data
     except Exception as e:
-        logger.error(f"Error al extraer clientes con usuarios: {e}")
+        logger.error(f"❌ Error al extraer clientes con usuarios: {e}")
         return []
 
 
 def extract_agentes_with_usuarios(mongo_db) -> List[Dict[str, Any]]:
-    """Extrae agentes haciendo lookup con usuarios para obtener nombre, email, etc."""
+    """Extrae agentes haciendo lookup con usuarios para obtener nombre, email, etc.
+    
+    IMPORTANTE: El usuarioId en MongoDB puede estar como String en vez de ObjectId.
+    Esta función convierte String a ObjectId antes del lookup.
+    """
+    from bson import ObjectId
+    
     try:
         agentes_collection = mongo_db['agentes']
-        # Agregación para hacer lookup con usuarios
+        
+        # Agregación con conversión de String a ObjectId y lookup
         pipeline = [
+            # Paso 1: Convertir usuarioId de String a ObjectId si es necesario
+            {
+                '$addFields': {
+                    'usuarioIdConverted': {
+                        '$cond': {
+                            'if': {'$eq': [{'$type': '$usuarioId'}, 'string']},
+                            'then': {'$toObjectId': '$usuarioId'},
+                            'else': '$usuarioId'
+                        }
+                    }
+                }
+            },
+            # Paso 2: Lookup usando el campo convertido
             {
                 '$lookup': {
                     'from': 'usuarios',
-                    'localField': 'usuarioId',
+                    'localField': 'usuarioIdConverted',
                     'foreignField': '_id',
                     'as': 'usuario'
                 }
             },
+            # Paso 3: Unwind para obtener el usuario como objeto (no array)
             {
                 '$unwind': {
                     'path': '$usuario',
                     'preserveNullAndEmptyArrays': False  # Solo agentes con usuario válido
                 }
+            },
+            # Paso 4: Limpiar el campo temporal
+            {
+                '$project': {
+                    'usuarioIdConverted': 0
+                }
             }
         ]
+        
         data = list(agentes_collection.aggregate(pipeline))
-        logger.info(f"Extraídos {len(data)} agentes con lookup de usuarios")
+        logger.info(f"✅ Extraídos {len(data)} agentes con lookup de usuarios (usuarioId convertido de String a ObjectId)")
         return data
     except Exception as e:
-        logger.error(f"Error al extraer agentes con usuarios: {e}")
+        logger.error(f"❌ Error al extraer agentes con usuarios: {e}")
         return []
 
 
