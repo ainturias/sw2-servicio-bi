@@ -195,6 +195,89 @@ async def sync_once():
         }
 
 
+@app.get("/debug/mongo-counts", tags=["Debug"])
+async def get_mongo_counts():
+    """
+    Endpoint de debug para ver cuántos documentos hay en cada colección de MongoDB.
+    Compara MongoDB (origen) vs PostgreSQL (destino) para detectar desfases.
+    """
+    import os
+    from pymongo import MongoClient
+    
+    try:
+        # Conectar a MongoDB
+        mongo_uri = os.getenv("MONGO_URI")
+        mongo_db_name = os.getenv("MONGO_DATABASE", "agencia_viajes")
+        
+        if not mongo_uri:
+            raise ValueError("MONGO_URI no configurada")
+        
+        mongo_client = MongoClient(mongo_uri)
+        mongo_db = mongo_client[mongo_db_name]
+        
+        # Contar documentos en cada colección
+        mongo_counts = {
+            "clientes": mongo_db.clientes.count_documents({}),
+            "agentes": mongo_db.agentes.count_documents({}),
+            "servicios": mongo_db.servicios.count_documents({}),
+            "paquetes_turisticos": mongo_db.paquetesTuristicos.count_documents({}),
+            "ventas": mongo_db.ventas.count_documents({}),
+            "detalle_venta": mongo_db.detalleVenta.count_documents({})
+        }
+        
+        # Contar registros en PostgreSQL
+        conn = get_conn()
+        postgres_counts = {}
+        
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM clientes")
+                postgres_counts["clientes"] = cur.fetchone()[0]
+                
+                cur.execute("SELECT COUNT(*) FROM agentes")
+                postgres_counts["agentes"] = cur.fetchone()[0]
+                
+                cur.execute("SELECT COUNT(*) FROM servicios")
+                postgres_counts["servicios"] = cur.fetchone()[0]
+                
+                cur.execute("SELECT COUNT(*) FROM paquetes_turisticos")
+                postgres_counts["paquetes_turisticos"] = cur.fetchone()[0]
+                
+                cur.execute("SELECT COUNT(*) FROM ventas")
+                postgres_counts["ventas"] = cur.fetchone()[0]
+                
+                cur.execute("SELECT COUNT(*) FROM detalle_venta")
+                postgres_counts["detalle_venta"] = cur.fetchone()[0]
+        
+        mongo_client.close()
+        
+        # Calcular diferencias
+        differences = {}
+        for collection in mongo_counts:
+            diff = mongo_counts[collection] - postgres_counts.get(collection, 0)
+            differences[collection] = {
+                "mongo": mongo_counts[collection],
+                "postgres": postgres_counts.get(collection, 0),
+                "diferencia": diff,
+                "sincronizado": diff == 0
+            }
+        
+        return {
+            "status": "success",
+            "database": mongo_db_name,
+            "collections": differences,
+            "resumen": {
+                "total_mongo": sum(mongo_counts.values()),
+                "total_postgres": sum(postgres_counts.values()),
+                "tablas_sincronizadas": sum(1 for d in differences.values() if d["sincronizado"])
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error al obtener conteos: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
 @app.get("/dashboard/resumen", response_model=DashboardResumenResponse, tags=["Dashboard"])
 async def obtener_resumen_dashboard(
     fecha_inicio: Optional[date] = None,
