@@ -609,6 +609,9 @@ def upsert_ventas(conn, ventas: List[Dict[str, Any]]) -> tuple[int, int, Dict[st
     
     for venta in ventas:
         try:
+            # Log del estado que vamos a insertar/actualizar
+            logger.info(f"📝 Procesando venta {venta['origen_id'][:8]}... - Estado: {venta['estado']}")
+            
             cur.execute("""
                 INSERT INTO ventas (origen_id, cliente_id, agente_id, estado, monto, fecha_venta, puntuacion_satisfaccion)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -620,7 +623,7 @@ def upsert_ventas(conn, ventas: List[Dict[str, Any]]) -> tuple[int, int, Dict[st
                     monto = EXCLUDED.monto,
                     fecha_venta = EXCLUDED.fecha_venta,
                     puntuacion_satisfaccion = EXCLUDED.puntuacion_satisfaccion
-                RETURNING id
+                RETURNING id, (xmax = 0) AS inserted
             """, (
                 venta['origen_id'],
                 venta['cliente_id'],
@@ -634,11 +637,14 @@ def upsert_ventas(conn, ventas: List[Dict[str, Any]]) -> tuple[int, int, Dict[st
             result = cur.fetchone()
             if result:
                 venta_map[venta['origen_id']] = result[0]
-            
-            if cur.rowcount == 1:
-                insertados += 1
-            else:
-                actualizados += 1
+                was_inserted = result[1]
+                
+                if was_inserted:
+                    insertados += 1
+                    logger.info(f"✅ INSERT venta {venta['origen_id'][:8]}... - Estado: {venta['estado']}")
+                else:
+                    actualizados += 1
+                    logger.info(f"🔄 UPDATE venta {venta['origen_id'][:8]}... - Estado: {venta['estado']}")
         except Exception as e:
             logger.error(f"Error al procesar venta {venta.get('origen_id')}: {e}")
             continue
@@ -791,6 +797,7 @@ def sync_data():
             ventas_pg = [map_venta(doc, cliente_map, agente_map) for doc in ventas_mongo]
             ventas_pg = [v for v in ventas_pg if v is not None]
             insertados, actualizados, venta_map = upsert_ventas(pg_conn, ventas_pg)
+            logger.info(f"📊 Ventas sincronizadas: {insertados} insertadas, {actualizados} actualizadas")
             pg_conn.commit()
 
             detalles_pg = [map_detalle_venta(doc, venta_map, servicio_map, paquete_map) for doc in detalles_mongo]
