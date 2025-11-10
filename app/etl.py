@@ -390,37 +390,35 @@ def upsert_clientes(conn, clientes: List[Dict[str, Any]]) -> tuple[int, int]:
     insertados = 0
     actualizados = 0
     
-    for cliente in clientes:
-        # Usar un cursor nuevo para cada operación para evitar problemas de prepared statements
-        cur = conn.cursor()
-        try:
-            cur.execute("""
-                INSERT INTO clientes (origen_id, nombre, email, telefono, fecha_registro)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (origen_id) 
-                DO UPDATE SET
-                    nombre = EXCLUDED.nombre,
-                    email = EXCLUDED.email,
-                    telefono = EXCLUDED.telefono,
-                    fecha_registro = EXCLUDED.fecha_registro
-            """, (
-                cliente['origen_id'],
-                cliente['nombre'],
-                cliente['email'],
-                cliente['telefono'],
-                cliente['fecha_registro']
-            ))
-            
-            if cur.rowcount == 1:
-                insertados += 1
-            else:
-                actualizados += 1
-        except Exception as e:
-            logger.error(f"Error al procesar cliente {cliente.get('origen_id')}: {e}")
-            # Hacer rollback y reiniciar transacción para poder continuar
-            conn.rollback()
-        finally:
-            cur.close()
+    with conn.cursor() as cur:
+        for cliente in clientes:
+            try:
+                cur.execute("""
+                    INSERT INTO clientes (origen_id, nombre, email, telefono, fecha_registro)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (origen_id) 
+                    DO UPDATE SET
+                        nombre = EXCLUDED.nombre,
+                        email = EXCLUDED.email,
+                        telefono = EXCLUDED.telefono,
+                        fecha_registro = EXCLUDED.fecha_registro
+                """, (
+                    cliente['origen_id'],
+                    cliente['nombre'],
+                    cliente['email'],
+                    cliente['telefono'],
+                    cliente['fecha_registro']
+                ))
+                
+                if cur.rowcount == 1:
+                    insertados += 1
+                else:
+                    actualizados += 1
+            except Exception as e:
+                logger.error(f"Error al procesar cliente {cliente.get('origen_id')}: {e}")
+                # Hacer rollback y reiniciar transacción para poder continuar
+                conn.rollback()
+                continue
     
     return insertados, actualizados
 
@@ -608,48 +606,51 @@ def upsert_ventas(conn, ventas: List[Dict[str, Any]]) -> tuple[int, int, Dict[st
     actualizados = 0
     venta_map = {}
     
-    for venta in ventas:
-        try:
-            # Log del estado que vamos a insertar/actualizar
-            logger.info(f"📝 Procesando venta {venta['origen_id'][:8]}... - Estado: {venta['estado']}, Monto: {venta['monto']}")
-            
-            cur.execute("""
-                INSERT INTO ventas (origen_id, cliente_id, agente_id, estado, monto, fecha_venta, puntuacion_satisfaccion)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (origen_id) 
-                DO UPDATE SET
-                    cliente_id = EXCLUDED.cliente_id,
-                    agente_id = EXCLUDED.agente_id,
-                    estado = EXCLUDED.estado,
-                    monto = EXCLUDED.monto,
-                    fecha_venta = EXCLUDED.fecha_venta,
-                    puntuacion_satisfaccion = EXCLUDED.puntuacion_satisfaccion,
-                    updated_at = CURRENT_TIMESTAMP
-                RETURNING id, (xmax = 0) AS inserted
-            """, (
-                venta['origen_id'],
-                venta['cliente_id'],
-                venta['agente_id'],
-                venta['estado'],
-                venta['monto'],
-                venta['fecha_venta'],
-                venta.get('puntuacion_satisfaccion')
-            ))
-            
-            result = cur.fetchone()
-            if result:
-                venta_map[venta['origen_id']] = result[0]
-                was_inserted = result[1]
+    with conn.cursor() as cur:
+        for venta in ventas:
+            try:
+                # Log del estado que vamos a insertar/actualizar
+                logger.info(f"📝 Procesando venta {venta['origen_id'][:8]}... - Estado: {venta['estado']}, Monto: {venta['monto']}")
                 
-                if was_inserted:
-                    insertados += 1
-                    logger.info(f"✅ INSERT venta {venta['origen_id'][:8]}... - Estado: {venta['estado']}")
-                else:
-                    actualizados += 1
-                    logger.info(f"🔄 UPDATE venta {venta['origen_id'][:8]}... - Estado: {venta['estado']}")
-        except Exception as e:
-            logger.error(f"Error al procesar venta {venta.get('origen_id')}: {e}")
-            continue
+                cur.execute("""
+                    INSERT INTO ventas (origen_id, cliente_id, agente_id, estado, monto, fecha_venta, puntuacion_satisfaccion)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (origen_id) 
+                    DO UPDATE SET
+                        cliente_id = EXCLUDED.cliente_id,
+                        agente_id = EXCLUDED.agente_id,
+                        estado = EXCLUDED.estado,
+                        monto = EXCLUDED.monto,
+                        fecha_venta = EXCLUDED.fecha_venta,
+                        puntuacion_satisfaccion = EXCLUDED.puntuacion_satisfaccion,
+                        updated_at = CURRENT_TIMESTAMP
+                    RETURNING id, (xmax = 0) AS inserted
+                """, (
+                    venta['origen_id'],
+                    venta['cliente_id'],
+                    venta['agente_id'],
+                    venta['estado'],
+                    venta['monto'],
+                    venta['fecha_venta'],
+                    venta.get('puntuacion_satisfaccion')
+                ))
+                
+                result = cur.fetchone()
+                if result:
+                    venta_map[venta['origen_id']] = result[0]
+                    was_inserted = result[1]
+                    
+                    if was_inserted:
+                        insertados += 1
+                        logger.info(f"✅ INSERT venta {venta['origen_id'][:8]}... - Estado: {venta['estado']}")
+                    else:
+                        actualizados += 1
+                        logger.info(f"🔄 UPDATE venta {venta['origen_id'][:8]}... - Estado: {venta['estado']}")
+            except Exception as e:
+                logger.error(f"Error al procesar venta {venta.get('origen_id')}: {e}")
+                # Rollback y continuar
+                conn.rollback()
+                continue
     
     return insertados, actualizados, venta_map
 
