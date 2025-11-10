@@ -271,6 +271,70 @@ async def force_sync():
         }
 
 
+@app.post("/sync/fix-ventas", tags=["Health"])
+async def fix_ventas_estados():
+    """
+    Endpoint para forzar actualización de estados de ventas desde MongoDB.
+    Útil cuando el UPDATE no funciona correctamente.
+    """
+    import os
+    from pymongo import MongoClient
+    
+    try:
+        logger.info("🔧 Forzando actualización directa de estados...")
+        
+        # Conectar a MongoDB
+        mongo_uri = os.getenv("MONGO_URI")
+        mongo_db_name = os.getenv("MONGO_DATABASE", "agencia_viajes")
+        mongo_client = MongoClient(mongo_uri)
+        mongo_db = mongo_client[mongo_db_name]
+        
+        # Obtener todas las ventas de MongoDB
+        ventas_mongo = list(mongo_db.ventas.find({}, {
+            '_id': 1,
+            'estadoVenta': 1,
+            'montoTotal': 1
+        }))
+        
+        actualizados = 0
+        
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                for venta in ventas_mongo:
+                    origen_id = str(venta['_id'])
+                    estado = (venta.get('estadoVenta') or '').lower()
+                    monto = venta.get('montoTotal', 0)
+                    
+                    # UPDATE directo
+                    cur.execute("""
+                        UPDATE ventas 
+                        SET estado = %s, monto = %s
+                        WHERE origen_id = %s
+                    """, (estado, monto, origen_id))
+                    
+                    if cur.rowcount > 0:
+                        actualizados += 1
+                        logger.info(f"✅ Actualizada venta {origen_id[:8]}... → {estado}")
+                
+                conn.commit()
+        
+        mongo_client.close()
+        
+        logger.info(f"✅ Fix completado: {actualizados} ventas actualizadas")
+        return {
+            "status": "success",
+            "message": f"Fix completado: {actualizados} ventas actualizadas",
+            "actualizados": actualizados
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error en fix de ventas: {e}")
+        return {
+            "status": "error",
+            "message": f"Error: {str(e)}"
+        }
+
+
 @app.get("/debug/ventas-estados", tags=["Debug"])
 async def get_ventas_estados():
     """
