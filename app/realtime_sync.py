@@ -96,9 +96,19 @@ class RealtimeSync:
                             break
 
                         try:
-                            logger.info("�🔄 Iniciando sincronización de datos...")
-                            sync_data()
-                            logger.info("✅ Sincronización completada exitosamente")
+                            # Si es un DELETE, manejar específicamente
+                            if operation == 'delete':
+                                logger.info("🗑️ Eliminación detectada - procesando delete...")
+                                from app.etl import handle_delete
+                                document_id = change.get('documentKey', {}).get('_id')
+                                if document_id:
+                                    handle_delete(collection, str(document_id))
+                                    logger.info(f"✅ Delete procesado: {collection}/{document_id}")
+                            else:
+                                # Para INSERT, UPDATE, REPLACE -> sincronización completa
+                                logger.info("🔄 Iniciando sincronización de datos...")
+                                sync_data()
+                                logger.info("✅ Sincronización completada exitosamente")
                         except Exception as e:
                             # Si el error viene de un pool cerrado durante el shutdown,
                             # lo tratamos como información y paramos el worker para evitar

@@ -732,6 +732,58 @@ def get_id_map(conn, table_name: str) -> Dict[str, int]:
         return {}
 
 
+def handle_delete(collection_name: str, document_id: str):
+    """Maneja la eliminación de un documento de MongoDB en PostgreSQL
+    
+    Args:
+        collection_name: Nombre de la colección de MongoDB (ej: 'ventas', 'clientes')
+        document_id: ID del documento eliminado en MongoDB (como string)
+    """
+    # Mapeo de colecciones MongoDB -> tablas PostgreSQL
+    table_map = {
+        'clientes': 'clientes',
+        'agentes': 'agentes',
+        'servicios': 'servicios',
+        'paquetesTuristicos': 'paquetes_turisticos',
+        'paquetes_turisticos': 'paquetes_turisticos',
+        'ventas': 'ventas',
+        'detalleVenta': 'detalle_venta',
+        'detalle_venta': 'detalle_venta'
+    }
+    
+    table_name = table_map.get(collection_name)
+    if not table_name:
+        logger.warning(f"Colección desconocida para delete: {collection_name}")
+        return
+    
+    try:
+        conn = get_pg_connection()
+        conn.autocommit = False
+        
+        with conn.cursor() as cur:
+            # Eliminar por origen_id (que es el _id de MongoDB convertido a string)
+            cur.execute(f"""
+                DELETE FROM {table_name}
+                WHERE origen_id = %s
+            """, (document_id,), prepare=False)
+            
+            deleted_count = cur.rowcount
+            conn.commit()
+            
+            if deleted_count > 0:
+                logger.info(f"🗑️ Eliminado {deleted_count} registro(s) de {table_name} con origen_id={document_id[:8]}...")
+            else:
+                logger.warning(f"⚠️ No se encontró registro en {table_name} con origen_id={document_id[:8]}...")
+                
+        conn.close()
+        
+    except Exception as e:
+        logger.error(f"❌ Error al eliminar de {table_name}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+
+
 def sync_data():
     """
     Función para sincronizar datos (versión simplificada de main)
