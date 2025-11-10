@@ -2,6 +2,7 @@ fastapi==0.104.1
 uvicorn[standard]==0.24.0
 pydantic==2.9.2
 psycopg[binary]==3.2.3
+psycopg-pool==3.2.3
 pymongo==4.10.1
 python-dotenv==1.0.0
 
