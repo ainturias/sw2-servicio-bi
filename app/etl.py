@@ -226,11 +226,12 @@ def upsert_clientes(conn, clientes: List[Dict[str, Any]]) -> tuple[int, int]:
     if not clientes:
         return 0, 0
     
-    cur = conn.cursor()
     insertados = 0
     actualizados = 0
     
     for cliente in clientes:
+        # Usar un cursor nuevo para cada operación para evitar problemas de prepared statements
+        cur = conn.cursor()
         try:
             cur.execute("""
                 INSERT INTO clientes (origen_id, nombre, email, telefono, fecha_registro)
@@ -255,7 +256,10 @@ def upsert_clientes(conn, clientes: List[Dict[str, Any]]) -> tuple[int, int]:
                 actualizados += 1
         except Exception as e:
             logger.error(f"Error al procesar cliente {cliente.get('origen_id')}: {e}")
-            continue
+            # Hacer rollback y reiniciar transacción para poder continuar
+            conn.rollback()
+        finally:
+            cur.close()
     
     return insertados, actualizados
 
