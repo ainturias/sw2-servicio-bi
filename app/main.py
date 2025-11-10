@@ -5,7 +5,7 @@ from typing import Optional, List
 from datetime import date
 import csv
 import io
-from app.db import get_conn
+from app.db import get_conn, init_pool, close_pool
 from app.realtime_sync import start_realtime_sync, stop_realtime_sync
 import logging
 
@@ -26,6 +26,13 @@ async def startup_event():
     """Iniciar la sincronización en tiempo real al arrancar la aplicación"""
     logger.info("🚀 Iniciando aplicación...")
     try:
+        # Inicializar pool de Postgres antes de arrancar el worker
+        try:
+            init_pool(min_size=1, max_size=5)
+            logger.info("✅ Pool de PostgreSQL inicializado")
+        except Exception as e:
+            logger.warning(f"No se pudo inicializar el pool de Postgres: {e}")
+
         if start_realtime_sync():
             logger.info("✅ Sincronización en tiempo real activada")
         else:
@@ -40,6 +47,12 @@ async def shutdown_event():
     """Detener la sincronización al cerrar la aplicación"""
     logger.info("⏹️ Deteniendo aplicación...")
     stop_realtime_sync()
+    # Cerrar pool de Postgres
+    try:
+        close_pool()
+        logger.info("✅ Pool de PostgreSQL cerrado")
+    except Exception as e:
+        logger.warning(f"Error cerrando pool de Postgres: {e}")
     logger.info("👋 Aplicación detenida")
 
 
