@@ -591,16 +591,17 @@ def upsert_ventas(conn, ventas: List[Dict[str, Any]]) -> tuple[int, int, Dict[st
     if not ventas:
         return 0, 0, {}
     
-    # Asegurar que la tabla tiene origen_id
+    # Asegurar que la tabla tiene origen_id y updated_at
     cur = conn.cursor()
     try:
         cur.execute("""
             ALTER TABLE ventas 
-            ADD COLUMN IF NOT EXISTS origen_id VARCHAR(255) UNIQUE
+            ADD COLUMN IF NOT EXISTS origen_id VARCHAR(255) UNIQUE,
+            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         """)
         conn.commit()
     except Exception as e:
-        logger.warning(f"Error al agregar columna origen_id a ventas: {e}")
+        logger.warning(f"Error al agregar columnas a ventas: {e}")
         conn.rollback()
     
     insertados = 0
@@ -610,7 +611,7 @@ def upsert_ventas(conn, ventas: List[Dict[str, Any]]) -> tuple[int, int, Dict[st
     for venta in ventas:
         try:
             # Log del estado que vamos a insertar/actualizar
-            logger.info(f"📝 Procesando venta {venta['origen_id'][:8]}... - Estado: {venta['estado']}")
+            logger.info(f"📝 Procesando venta {venta['origen_id'][:8]}... - Estado: {venta['estado']}, Monto: {venta['monto']}")
             
             cur.execute("""
                 INSERT INTO ventas (origen_id, cliente_id, agente_id, estado, monto, fecha_venta, puntuacion_satisfaccion)
@@ -622,7 +623,8 @@ def upsert_ventas(conn, ventas: List[Dict[str, Any]]) -> tuple[int, int, Dict[st
                     estado = EXCLUDED.estado,
                     monto = EXCLUDED.monto,
                     fecha_venta = EXCLUDED.fecha_venta,
-                    puntuacion_satisfaccion = EXCLUDED.puntuacion_satisfaccion
+                    puntuacion_satisfaccion = EXCLUDED.puntuacion_satisfaccion,
+                    updated_at = CURRENT_TIMESTAMP
                 RETURNING id, (xmax = 0) AS inserted
             """, (
                 venta['origen_id'],
