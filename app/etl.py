@@ -429,49 +429,51 @@ def upsert_agentes(conn, agentes: List[Dict[str, Any]]) -> tuple[int, int]:
         return 0, 0
     
     # Primero crear la tabla si no existe
-    cur = conn.cursor()
-    try:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS agentes (
-                id SERIAL PRIMARY KEY,
-                origen_id VARCHAR(255) UNIQUE NOT NULL,
-                nombre VARCHAR(100) NOT NULL,
-                email VARCHAR(100),
-                telefono VARCHAR(20)
-            )
-        """)
-        conn.commit()
-    except Exception as e:
-        logger.warning(f"Error al crear tabla agentes: {e}")
-        conn.rollback()
+    with conn.cursor() as cur:
+        try:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS agentes (
+                    id SERIAL PRIMARY KEY,
+                    origen_id VARCHAR(255) UNIQUE NOT NULL,
+                    nombre VARCHAR(100) NOT NULL,
+                    email VARCHAR(100),
+                    telefono VARCHAR(20)
+                )
+            """)
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"Error al crear tabla agentes: {e}")
+            conn.rollback()
     
     insertados = 0
     actualizados = 0
     
-    for agente in agentes:
-        try:
-            cur.execute("""
-                INSERT INTO agentes (origen_id, nombre, email, telefono)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (origen_id) 
-                DO UPDATE SET
-                    nombre = EXCLUDED.nombre,
-                    email = EXCLUDED.email,
-                    telefono = EXCLUDED.telefono
-            """, (
-                agente['origen_id'],
-                agente['nombre'],
-                agente['email'],
-                agente['telefono']
-            ))
-            
-            if cur.rowcount == 1:
-                insertados += 1
-            else:
-                actualizados += 1
-        except Exception as e:
-            logger.error(f"Error al procesar agente {agente.get('origen_id')}: {e}")
-            continue
+    with conn.cursor() as cur:
+        for agente in agentes:
+            try:
+                cur.execute("""
+                    INSERT INTO agentes (origen_id, nombre, email, telefono)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (origen_id) 
+                    DO UPDATE SET
+                        nombre = EXCLUDED.nombre,
+                        email = EXCLUDED.email,
+                        telefono = EXCLUDED.telefono
+                """, (
+                    agente['origen_id'],
+                    agente['nombre'],
+                    agente['email'],
+                    agente['telefono']
+                ))
+                
+                if cur.rowcount == 1:
+                    insertados += 1
+                else:
+                    actualizados += 1
+            except Exception as e:
+                logger.error(f"Error al procesar agente {agente.get('origen_id')}: {e}")
+                conn.rollback()
+                continue
     
     return insertados, actualizados
 
@@ -482,54 +484,56 @@ def upsert_servicios(conn, servicios: List[Dict[str, Any]]) -> tuple[int, int]:
         return 0, 0
     
     # Crear tabla si no existe (con destino_pais)
-    cur = conn.cursor()
-    try:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS servicios (
-                id SERIAL PRIMARY KEY,
-                origen_id VARCHAR(255) UNIQUE NOT NULL,
-                destino_ciudad VARCHAR(200),
-                destino_pais VARCHAR(100),
-                precio_costo DECIMAL(10, 2) DEFAULT 0
-            )
-        """)
-        # Agregar columna destino_pais si no existe
-        cur.execute("""
-            ALTER TABLE servicios 
-            ADD COLUMN IF NOT EXISTS destino_pais VARCHAR(100)
-        """)
-        conn.commit()
-    except Exception as e:
-        logger.warning(f"Error al crear/modificar tabla servicios: {e}")
-        conn.rollback()
+    with conn.cursor() as cur:
+        try:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS servicios (
+                    id SERIAL PRIMARY KEY,
+                    origen_id VARCHAR(255) UNIQUE NOT NULL,
+                    destino_ciudad VARCHAR(200),
+                    destino_pais VARCHAR(100),
+                    precio_costo DECIMAL(10, 2) DEFAULT 0
+                )
+            """)
+            # Agregar columna destino_pais si no existe
+            cur.execute("""
+                ALTER TABLE servicios 
+                ADD COLUMN IF NOT EXISTS destino_pais VARCHAR(100)
+            """)
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"Error al crear/modificar tabla servicios: {e}")
+            conn.rollback()
     
     insertados = 0
     actualizados = 0
     
-    for servicio in servicios:
-        try:
-            cur.execute("""
-                INSERT INTO servicios (origen_id, destino_ciudad, destino_pais, precio_costo)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (origen_id) 
-                DO UPDATE SET
-                    destino_ciudad = EXCLUDED.destino_ciudad,
-                    destino_pais = EXCLUDED.destino_pais,
-                    precio_costo = EXCLUDED.precio_costo
-            """, (
-                servicio['origen_id'],
-                servicio['destino_ciudad'],
-                servicio['destino_pais'],
-                servicio['precio_costo']
-            ))
-            
-            if cur.rowcount == 1:
-                insertados += 1
-            else:
-                actualizados += 1
-        except Exception as e:
-            logger.error(f"Error al procesar servicio {servicio.get('origen_id')}: {e}")
-            continue
+    with conn.cursor() as cur:
+        for servicio in servicios:
+            try:
+                cur.execute("""
+                    INSERT INTO servicios (origen_id, destino_ciudad, destino_pais, precio_costo)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (origen_id) 
+                    DO UPDATE SET
+                        destino_ciudad = EXCLUDED.destino_ciudad,
+                        destino_pais = EXCLUDED.destino_pais,
+                        precio_costo = EXCLUDED.precio_costo
+                """, (
+                    servicio['origen_id'],
+                    servicio['destino_ciudad'],
+                    servicio['destino_pais'],
+                    servicio['precio_costo']
+                ))
+                
+                if cur.rowcount == 1:
+                    insertados += 1
+                else:
+                    actualizados += 1
+            except Exception as e:
+                logger.error(f"Error al procesar servicio {servicio.get('origen_id')}: {e}")
+                conn.rollback()
+                continue
     
     return insertados, actualizados
 
@@ -540,46 +544,48 @@ def upsert_paquetes_turisticos(conn, paquetes: List[Dict[str, Any]]) -> tuple[in
         return 0, 0
     
     # Crear tabla si no existe
-    cur = conn.cursor()
-    try:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS paquetes_turisticos (
-                id SERIAL PRIMARY KEY,
-                origen_id VARCHAR(255) UNIQUE NOT NULL,
-                destino_principal VARCHAR(200),
-                precio_total_venta DECIMAL(10, 2)
-            )
-        """)
-        conn.commit()
-    except Exception as e:
-        logger.warning(f"Error al crear tabla paquetes_turisticos: {e}")
-        conn.rollback()
+    with conn.cursor() as cur:
+        try:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS paquetes_turisticos (
+                    id SERIAL PRIMARY KEY,
+                    origen_id VARCHAR(255) UNIQUE NOT NULL,
+                    destino_principal VARCHAR(200),
+                    precio_total_venta DECIMAL(10, 2)
+                )
+            """)
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"Error al crear tabla paquetes_turisticos: {e}")
+            conn.rollback()
     
     insertados = 0
     actualizados = 0
     
-    for paquete in paquetes:
-        try:
-            cur.execute("""
-                INSERT INTO paquetes_turisticos (origen_id, destino_principal, precio_total_venta)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (origen_id) 
-                DO UPDATE SET
-                    destino_principal = EXCLUDED.destino_principal,
-                    precio_total_venta = EXCLUDED.precio_total_venta
-            """, (
-                paquete['origen_id'],
-                paquete['destino_principal'],
-                paquete['precio_total_venta']
-            ))
-            
-            if cur.rowcount == 1:
-                insertados += 1
-            else:
-                actualizados += 1
-        except Exception as e:
-            logger.error(f"Error al procesar paquete {paquete.get('origen_id')}: {e}")
-            continue
+    with conn.cursor() as cur:
+        for paquete in paquetes:
+            try:
+                cur.execute("""
+                    INSERT INTO paquetes_turisticos (origen_id, destino_principal, precio_total_venta)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (origen_id) 
+                    DO UPDATE SET
+                        destino_principal = EXCLUDED.destino_principal,
+                        precio_total_venta = EXCLUDED.precio_total_venta
+                """, (
+                    paquete['origen_id'],
+                    paquete['destino_principal'],
+                    paquete['precio_total_venta']
+                ))
+                
+                if cur.rowcount == 1:
+                    insertados += 1
+                else:
+                    actualizados += 1
+            except Exception as e:
+                logger.error(f"Error al procesar paquete {paquete.get('origen_id')}: {e}")
+                conn.rollback()
+                continue
     
     return insertados, actualizados
 
@@ -661,54 +667,56 @@ def upsert_detalle_venta(conn, detalles: List[Dict[str, Any]]) -> tuple[int, int
         return 0, 0
     
     # Asegurar que la tabla tiene origen_id
-    cur = conn.cursor()
-    try:
-        cur.execute("""
-            ALTER TABLE detalle_venta 
-            ADD COLUMN IF NOT EXISTS origen_id VARCHAR(255) UNIQUE,
-            ADD COLUMN IF NOT EXISTS servicio_id INTEGER REFERENCES servicios(id),
-            ADD COLUMN IF NOT EXISTS paquete_id INTEGER REFERENCES paquetes_turisticos(id)
-        """)
-        conn.commit()
-    except Exception as e:
-        logger.warning(f"Error al modificar tabla detalle_venta: {e}")
-        conn.rollback()
+    with conn.cursor() as cur:
+        try:
+            cur.execute("""
+                ALTER TABLE detalle_venta 
+                ADD COLUMN IF NOT EXISTS origen_id VARCHAR(255) UNIQUE,
+                ADD COLUMN IF NOT EXISTS servicio_id INTEGER REFERENCES servicios(id),
+                ADD COLUMN IF NOT EXISTS paquete_id INTEGER REFERENCES paquetes_turisticos(id)
+            """)
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"Error al modificar tabla detalle_venta: {e}")
+            conn.rollback()
     
     insertados = 0
     actualizados = 0
     
-    for detalle in detalles:
-        try:
-            cur.execute("""
-                INSERT INTO detalle_venta (origen_id, venta_id, servicio_id, paquete_id, descripcion, cantidad, precio_unitario, subtotal)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (origen_id) 
-                DO UPDATE SET
-                    venta_id = EXCLUDED.venta_id,
-                    servicio_id = EXCLUDED.servicio_id,
-                    paquete_id = EXCLUDED.paquete_id,
-                    descripcion = EXCLUDED.descripcion,
-                    cantidad = EXCLUDED.cantidad,
-                    precio_unitario = EXCLUDED.precio_unitario,
-                    subtotal = EXCLUDED.subtotal
-            """, (
-                detalle['origen_id'],
-                detalle['venta_id'],
-                detalle['servicio_id'],
-                detalle['paquete_id'],
-                detalle['descripcion'],
-                detalle['cantidad'],
-                detalle['precio_unitario'],
-                detalle['subtotal']
-            ))
-            
-            if cur.rowcount == 1:
-                insertados += 1
-            else:
-                actualizados += 1
-        except Exception as e:
-            logger.error(f"Error al procesar detalle_venta {detalle.get('origen_id')}: {e}")
-            continue
+    with conn.cursor() as cur:
+        for detalle in detalles:
+            try:
+                cur.execute("""
+                    INSERT INTO detalle_venta (origen_id, venta_id, servicio_id, paquete_id, descripcion, cantidad, precio_unitario, subtotal)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (origen_id) 
+                    DO UPDATE SET
+                        venta_id = EXCLUDED.venta_id,
+                        servicio_id = EXCLUDED.servicio_id,
+                        paquete_id = EXCLUDED.paquete_id,
+                        descripcion = EXCLUDED.descripcion,
+                        cantidad = EXCLUDED.cantidad,
+                        precio_unitario = EXCLUDED.precio_unitario,
+                        subtotal = EXCLUDED.subtotal
+                """, (
+                    detalle['origen_id'],
+                    detalle['venta_id'],
+                    detalle['servicio_id'],
+                    detalle['paquete_id'],
+                    detalle['descripcion'],
+                    detalle['cantidad'],
+                    detalle['precio_unitario'],
+                    detalle['subtotal']
+                ))
+                
+                if cur.rowcount == 1:
+                    insertados += 1
+                else:
+                    actualizados += 1
+            except Exception as e:
+                logger.error(f"Error al procesar detalle_venta {detalle.get('origen_id')}: {e}")
+                conn.rollback()
+                continue
     
     return insertados, actualizados
 
