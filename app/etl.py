@@ -89,30 +89,135 @@ def extract_collection(mongo_db, collection_name: str) -> List[Dict[str, Any]]:
         return []
 
 
+def extract_clientes_with_usuarios(mongo_db) -> List[Dict[str, Any]]:
+    """Extrae clientes haciendo lookup con usuarios para obtener nombre, email, etc."""
+    try:
+        clientes_collection = mongo_db['clientes']
+        # Agregación para hacer lookup con usuarios
+        pipeline = [
+            {
+                '$lookup': {
+                    'from': 'usuarios',
+                    'localField': 'usuarioId',
+                    'foreignField': '_id',
+                    'as': 'usuario'
+                }
+            },
+            {
+                '$unwind': {
+                    'path': '$usuario',
+                    'preserveNullAndEmptyArrays': False  # Solo clientes con usuario válido
+                }
+            }
+        ]
+        data = list(clientes_collection.aggregate(pipeline))
+        logger.info(f"Extraídos {len(data)} clientes con lookup de usuarios")
+        return data
+    except Exception as e:
+        logger.error(f"Error al extraer clientes con usuarios: {e}")
+        return []
+
+
+def extract_agentes_with_usuarios(mongo_db) -> List[Dict[str, Any]]:
+    """Extrae agentes haciendo lookup con usuarios para obtener nombre, email, etc."""
+    try:
+        agentes_collection = mongo_db['agentes']
+        # Agregación para hacer lookup con usuarios
+        pipeline = [
+            {
+                '$lookup': {
+                    'from': 'usuarios',
+                    'localField': 'usuarioId',
+                    'foreignField': '_id',
+                    'as': 'usuario'
+                }
+            },
+            {
+                '$unwind': {
+                    'path': '$usuario',
+                    'preserveNullAndEmptyArrays': False  # Solo agentes con usuario válido
+                }
+            }
+        ]
+        data = list(agentes_collection.aggregate(pipeline))
+        logger.info(f"Extraídos {len(data)} agentes con lookup de usuarios")
+        return data
+    except Exception as e:
+        logger.error(f"Error al extraer agentes con usuarios: {e}")
+        return []
+
+
 def map_cliente(mongo_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Mapea documento de cliente de MongoDB a PostgreSQL"""
+    """Mapea documento de cliente de MongoDB a PostgreSQL
+    
+    El documento viene con lookup de usuarios:
+    {
+        "_id": ObjectId,
+        "usuarioId": ObjectId,
+        "direccion": "...",
+        "fechaNacimiento": ISODate,
+        "numeroPasaporte": "...",
+        "usuario": {
+            "nombre": "...",
+            "apellido": "...",
+            "email": "...",
+            "telefono": "..."
+        }
+    }
+    """
     if not mongo_doc.get('_id'):
         return None
     
+    # Obtener datos del usuario (viene del lookup)
+    usuario = mongo_doc.get('usuario', {})
+    
+    # Construir nombre completo
+    nombre = usuario.get('nombre', '')
+    apellido = usuario.get('apellido', '')
+    nombre_completo = f"{nombre} {apellido}".strip() if nombre or apellido else ''
+    
     return {
         'origen_id': str(mongo_doc['_id']),
-        'nombre': mongo_doc.get('nombre', ''),
-        'email': mongo_doc.get('email', ''),
-        'telefono': mongo_doc.get('telefono'),
+        'nombre': nombre_completo or 'Sin nombre',
+        'email': usuario.get('email', ''),
+        'telefono': usuario.get('telefono'),
         'fecha_registro': mongo_doc.get('fechaRegistro') or mongo_doc.get('fecha_registro') or datetime.now()
     }
 
 
 def map_agente(mongo_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Mapea documento de agente de MongoDB a PostgreSQL"""
+    """Mapea documento de agente de MongoDB a PostgreSQL
+    
+    El documento viene con lookup de usuarios:
+    {
+        "_id": ObjectId,
+        "usuarioId": ObjectId,
+        "puesto": "...",
+        "fechaContratacion": ISODate,
+        "usuario": {
+            "nombre": "...",
+            "apellido": "...",
+            "email": "...",
+            "telefono": "..."
+        }
+    }
+    """
     if not mongo_doc.get('_id'):
         return None
     
+    # Obtener datos del usuario (viene del lookup)
+    usuario = mongo_doc.get('usuario', {})
+    
+    # Construir nombre completo
+    nombre = usuario.get('nombre', '')
+    apellido = usuario.get('apellido', '')
+    nombre_completo = f"{nombre} {apellido}".strip() if nombre or apellido else ''
+    
     return {
         'origen_id': str(mongo_doc['_id']),
-        'nombre': mongo_doc.get('nombre', ''),
-        'email': mongo_doc.get('email', ''),
-        'telefono': mongo_doc.get('telefono')
+        'nombre': nombre_completo or 'Sin nombre',
+        'email': usuario.get('email', ''),
+        'telefono': usuario.get('telefono')
     }
 
 
@@ -594,8 +699,8 @@ def sync_data():
             pg_conn.autocommit = False
 
             # Extraer datos de MongoDB
-            clientes_mongo = extract_collection(mongo_db, "clientes")
-            agentes_mongo = extract_collection(mongo_db, "agentes")
+            clientes_mongo = extract_clientes_with_usuarios(mongo_db)  # Lookup con usuarios
+            agentes_mongo = extract_agentes_with_usuarios(mongo_db)  # Lookup con usuarios
             servicios_mongo = extract_collection(mongo_db, "servicios")
             paquetes_mongo = extract_collection(mongo_db, "paquetesTuristicos")
             ventas_mongo = extract_collection(mongo_db, "ventas")
@@ -725,8 +830,8 @@ def main():
         try:
             # Extraer datos de MongoDB
             logger.info("\n--- EXTRACCIÓN DE DATOS ---")
-            clientes_mongo = extract_collection(mongo_db, "clientes")
-            agentes_mongo = extract_collection(mongo_db, "agentes")
+            clientes_mongo = extract_clientes_with_usuarios(mongo_db)  # Lookup con usuarios
+            agentes_mongo = extract_agentes_with_usuarios(mongo_db)  # Lookup con usuarios
             servicios_mongo = extract_collection(mongo_db, "servicios")
             paquetes_mongo = extract_collection(mongo_db, "paquetesTuristicos")
             ventas_mongo = extract_collection(mongo_db, "ventas")
