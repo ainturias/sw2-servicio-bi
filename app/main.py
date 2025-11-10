@@ -1167,3 +1167,53 @@ async def test_insert_cliente():
     except Exception as e:
         logger.error(f"❌ Error general en test insert: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@app.get("/debug/simple-check", tags=["Debug"])
+async def simple_check():
+    """
+    Verificación simple: cuántos clientes hay en MongoDB vs PostgreSQL.
+    """
+    import os
+    from pymongo import MongoClient
+    import psycopg
+    
+    try:
+        results = {}
+        
+        # MongoDB
+        mongo_uri = os.getenv("MONGO_URI")
+        mongo_db_name = os.getenv("MONGO_DATABASE", "agencia_viajes")
+        mongo_client = MongoClient(mongo_uri)
+        mongo_db = mongo_client[mongo_db_name]
+        mongo_count = mongo_db.clientes.count_documents({})
+        mongo_client.close()
+        results["mongodb_clientes"] = mongo_count
+        
+        # PostgreSQL - usando conexión directa
+        database = os.getenv("PG_DATABASE", os.getenv("dbname", "postgres"))
+        user = os.getenv("PG_USER", os.getenv("user"))
+        password = os.getenv("PG_PASSWORD", os.getenv("password"))
+        host = os.getenv("PG_HOST", os.getenv("host", "aws-1-us-east-2.pooler.supabase.com"))
+        port = os.getenv("PG_PORT", os.getenv("port", "6543"))
+        sslmode = os.getenv("PG_SSLMODE", "require")
+        conninfo = f"dbname={database} user={user} password={password} host={host} port={port} sslmode={sslmode}"
+        
+        conn = psycopg.connect(conninfo)
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM clientes")
+            pg_count = cur.fetchone()[0]
+        conn.close()
+        results["postgres_clientes"] = pg_count
+        
+        results["sincronizado"] = mongo_count == pg_count
+        results["diferencia"] = mongo_count - pg_count
+        
+        return {
+            "status": "success",
+            "data": results
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error en simple check: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
