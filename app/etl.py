@@ -408,7 +408,7 @@ def upsert_clientes(conn, clientes: List[Dict[str, Any]]) -> tuple[int, int]:
                     cliente['email'],
                     cliente['telefono'],
                     cliente['fecha_registro']
-                ))
+                ), prepare=False)
                 
                 if cur.rowcount == 1:
                     insertados += 1
@@ -464,7 +464,7 @@ def upsert_agentes(conn, agentes: List[Dict[str, Any]]) -> tuple[int, int]:
                     agente['nombre'],
                     agente['email'],
                     agente['telefono']
-                ))
+                ), prepare=False)
                 
                 if cur.rowcount == 1:
                     insertados += 1
@@ -524,7 +524,7 @@ def upsert_servicios(conn, servicios: List[Dict[str, Any]]) -> tuple[int, int]:
                     servicio['destino_ciudad'],
                     servicio['destino_pais'],
                     servicio['precio_costo']
-                ))
+                ), prepare=False)
                 
                 if cur.rowcount == 1:
                     insertados += 1
@@ -576,7 +576,7 @@ def upsert_paquetes_turisticos(conn, paquetes: List[Dict[str, Any]]) -> tuple[in
                     paquete['origen_id'],
                     paquete['destino_principal'],
                     paquete['precio_total_venta']
-                ))
+                ), prepare=False)
                 
                 if cur.rowcount == 1:
                     insertados += 1
@@ -639,7 +639,7 @@ def upsert_ventas(conn, ventas: List[Dict[str, Any]]) -> tuple[int, int, Dict[st
                     venta['monto'],
                     venta['fecha_venta'],
                     venta.get('puntuacion_satisfaccion')
-                ))
+                ), prepare=False)
                 
                 result = cur.fetchone()
                 if result:
@@ -707,7 +707,7 @@ def upsert_detalle_venta(conn, detalles: List[Dict[str, Any]]) -> tuple[int, int
                     detalle['cantidad'],
                     detalle['precio_unitario'],
                     detalle['subtotal']
-                ))
+                ), prepare=False)
                 
                 if cur.rowcount == 1:
                     insertados += 1
