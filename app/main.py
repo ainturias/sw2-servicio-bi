@@ -226,10 +226,9 @@ async def get_mongo_counts():
         }
         
         # Contar registros en PostgreSQL
-        conn = get_conn()
         postgres_counts = {}
         
-        with conn:
+        with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) FROM clientes")
                 postgres_counts["clientes"] = cur.fetchone()[0]
@@ -313,9 +312,7 @@ async def obtener_resumen_dashboard(
         # Construir cláusula WHERE para ventas (usada en múltiples queries)
         ventas_where = where_clause.replace("fecha_venta", "v.fecha_venta") if where_clause else ""
         
-        conn = get_conn()
-        
-        with conn:
+        with get_conn() as conn:
             with conn.cursor() as cur:
                 # Total de clientes (no se filtra por fecha)
                 cur.execute("SELECT COUNT(*) FROM clientes")
@@ -532,9 +529,7 @@ async def obtener_margen_bruto(
             fecha_where = "AND v.fecha_venta <= %s"
             params = [fecha_fin]
         
-        conn = get_conn()
-        
-        with conn:
+        with get_conn() as conn:
             with conn.cursor() as cur:
                 # Query para calcular ingresos, costos y margen bruto
                 # Usa LEFT JOINs para servicios y paquetes_turisticos
@@ -630,9 +625,7 @@ async def obtener_tasa_conversion(
             fecha_where = "WHERE fecha_venta <= %s"
             params = [fecha_fin]
         
-        conn = get_conn()
-        
-        with conn:
+        with get_conn() as conn:
             with conn.cursor() as cur:
                 # Verificar si existe el estado "emitida"
                 cur.execute("""
@@ -718,9 +711,7 @@ async def obtener_tasa_cancelacion(
             fecha_where = "WHERE fecha_venta <= %s"
             params = [fecha_fin]
         
-        conn = get_conn()
-        
-        with conn:
+        with get_conn() as conn:
             with conn.cursor() as cur:
                 # Calcular tasa de cancelación usando NULLIF para prevenir división por cero
                 query = f"""
@@ -785,9 +776,7 @@ async def obtener_csat_promedio(
             fecha_where = "AND fecha_venta <= %s"
             params = [fecha_fin]
         
-        conn = get_conn()
-        
-        with conn:
+        with get_conn() as conn:
             with conn.cursor() as cur:
                 # Calcular promedio de puntuación de satisfacción
                 # Solo ventas confirmadas o finalizadas
@@ -855,9 +844,7 @@ async def obtener_top_destinos(
             fecha_where = "AND v.fecha_venta <= %s"
             params = [fecha_fin]
         
-        conn = get_conn()
-        
-        with conn:
+        with get_conn() as conn:
             with conn.cursor() as cur:
                 # Query para obtener top destinos agrupados por destino
                 query = f"""
@@ -970,51 +957,47 @@ async def exportar_ventas_csv(
         
         def generate_csv():
             """Generador para crear el CSV en streaming"""
-            conn = get_conn()
-            try:
-                with conn:
-                    output = io.StringIO()
-                    writer = csv.writer(output)
+            with get_conn() as conn:
+                output = io.StringIO()
+                writer = csv.writer(output)
+                
+                # Escribir cabeceras
+                writer.writerow([
+                    'venta_id',
+                    'fecha_venta',
+                    'cliente_id',
+                    'agente_id',
+                    'estado_venta',
+                    'monto_total',
+                    'destino',
+                    'cantidad',
+                    'precio_unitario_venta',
+                    'subtotal'
+                ])
+                yield output.getvalue()
+                output.seek(0)
+                output.truncate(0)
+                
+                # Ejecutar query y escribir filas
+                with conn.cursor() as cur:
+                    cur.execute(query, params)
                     
-                    # Escribir cabeceras
-                    writer.writerow([
-                        'venta_id',
-                        'fecha_venta',
-                        'cliente_id',
-                        'agente_id',
-                        'estado_venta',
-                        'monto_total',
-                        'destino',
-                        'cantidad',
-                        'precio_unitario_venta',
-                        'subtotal'
-                    ])
-                    yield output.getvalue()
-                    output.seek(0)
-                    output.truncate(0)
-                    
-                    # Ejecutar query y escribir filas
-                    with conn.cursor() as cur:
-                        cur.execute(query, params)
-                        
-                        for row in cur:
-                            writer.writerow([
-                                row[0] or '',  # venta_id
-                                row[1].isoformat() if row[1] else '',  # fecha_venta
-                                row[2] or '',  # cliente_id
-                                row[3] or '',  # agente_id
-                                row[4] or '',  # estado_venta
-                                float(row[5]) if row[5] is not None else 0.0,  # monto_total
-                                row[6] or 'Sin destino',  # destino
-                                row[7] or 0,  # cantidad
-                                float(row[8]) if row[8] is not None else 0.0,  # precio_unitario_venta
-                                float(row[9]) if row[9] is not None else 0.0  # subtotal
-                            ])
-                            yield output.getvalue()
-                            output.seek(0)
-                            output.truncate(0)
-            finally:
-                conn.close()
+                    for row in cur:
+                        writer.writerow([
+                            row[0] or '',  # venta_id
+                            row[1].isoformat() if row[1] else '',  # fecha_venta
+                            row[2] or '',  # cliente_id
+                            row[3] or '',  # agente_id
+                            row[4] or '',  # estado_venta
+                            float(row[5]) if row[5] is not None else 0.0,  # monto_total
+                            row[6] or 'Sin destino',  # destino
+                            row[7] or 0,  # cantidad
+                            float(row[8]) if row[8] is not None else 0.0,  # precio_unitario_venta
+                            float(row[9]) if row[9] is not None else 0.0  # subtotal
+                        ])
+                        yield output.getvalue()
+                        output.seek(0)
+                        output.truncate(0)
         
         return StreamingResponse(
             generate_csv(),
@@ -1065,8 +1048,7 @@ async def detailed_sync_debug():
             results["primer_cliente_transformado"] = primer_cliente_transformado
         
         # 2. Verificar PostgreSQL
-        conn = get_conn()
-        try:
+        with get_conn() as conn:
             with conn.cursor() as cur:
                 # Contar clientes
                 cur.execute("SELECT COUNT(*) FROM clientes")
@@ -1093,8 +1075,6 @@ async def detailed_sync_debug():
                     {"columna": c[0], "tipo": c[1]} 
                     for c in columns
                 ]
-        finally:
-            conn.close()
         
         mongo_client.close()
         
@@ -1135,34 +1115,32 @@ async def test_insert_cliente():
         primer_cliente = map_cliente(clientes_mongo[0])
         
         # Intentar insertar en PostgreSQL
-        conn = get_conn()
-        conn.autocommit = False
-        
-        try:
-            insertados, actualizados = upsert_clientes(conn, [primer_cliente])
-            conn.commit()
+        with get_conn() as conn:
+            # Deshabilitar autocommit para manejar la transacción
+            conn.autocommit = False
             
-            # Verificar si se insertó
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM clientes WHERE origen_id = %s", (primer_cliente['origen_id'],))
-                count = cur.fetchone()[0]
-            
-            conn.close()
-            
-            return {
-                "status": "success",
-                "cliente_mongo": clientes_mongo[0],
-                "cliente_transformado": primer_cliente,
-                "insertados": insertados,
-                "actualizados": actualizados,
-                "verificacion_count": count
-            }
-            
-        except Exception as e:
-            conn.rollback()
-            conn.close()
-            logger.error(f"❌ Error al insertar cliente de prueba: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Error SQL: {str(e)}")
+            try:
+                insertados, actualizados = upsert_clientes(conn, [primer_cliente])
+                conn.commit()
+                
+                # Verificar si se insertó
+                with conn.cursor() as cur:
+                    cur.execute("SELECT COUNT(*) FROM clientes WHERE origen_id = %s", (primer_cliente['origen_id'],))
+                    count = cur.fetchone()[0]
+                
+                return {
+                    "status": "success",
+                    "cliente_mongo": clientes_mongo[0],
+                    "cliente_transformado": primer_cliente,
+                    "insertados": insertados,
+                    "actualizados": actualizados,
+                    "verificacion_count": count
+                }
+                
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"❌ Error al insertar cliente de prueba: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Error SQL: {str(e)}")
         
     except Exception as e:
         logger.error(f"❌ Error general en test insert: {e}", exc_info=True)
