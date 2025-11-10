@@ -1,69 +1,72 @@
 version: '3.8'
 
 services:
-  postgres:
-    image: postgres:15-alpine
-    container_name: servicio-bi-postgres
-    environment:
-      POSTGRES_DB: agencia-viajes-bi
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 7550
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - bi-network
+  # ============================================================================
+  # OPCIÓN 1: Desarrollo local con bases de datos locales
+  # ============================================================================
+  # Descomentar postgres y mongo si quieres levantar bases de datos locales
+  # Comentar si usas Supabase + MongoDB Atlas
+  
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: servicio-bi-postgres
+  #   environment:
+  #     POSTGRES_DB: agencia-viajes-bi
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: 7550
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #     - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U postgres"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #   networks:
+  #     - bi-network
 
+  # mongo:
+  #   image: mongo:6.0
+  #   container_name: servicio-bi-mongo
+  #   environment:
+  #     MONGO_INITDB_DATABASE: agencia_viajes
+  #   ports:
+  #     - "27017:27017"
+  #   volumes:
+  #     - mongo_data:/data/db
+  #   networks:
+  #     - bi-network
+
+  # ============================================================================
+  # OPCIÓN 2: Desarrollo con bases de datos en la nube (RECOMENDADO)
+  # ============================================================================
+  # Usar archivo .env con tus credenciales reales de Supabase + MongoDB Atlas
+  
   servicio-bi:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: servicio-bi-api
-    environment:
-      PG_DATABASE: agencia-viajes-bi
-      PG_USER: postgres
-      PG_PASSWORD: 7550
-      PG_HOST: postgres
-      PG_PORT: 5432
-      # MongoDB local (contenedor) - usado por la sincronización en tiempo real
-      MONGO_URI: "mongodb://mongo:27017"
-      MONGO_DATABASE: agencia_viajes
-      # Ejemplo de token para pruebas (reemplazar en producción)
-      BI_AUTH_TOKEN: "changeme"
-      BI_BASE_URL: "http://localhost:8000"
+    env_file:
+      - .env  # Carga variables de entorno desde archivo .env
     ports:
       - "8000:8000"
-    depends_on:
-      - postgres
-      - mongo
+    # depends_on:  # Descomentar si usas postgres y mongo locales
+    #   - postgres
+    #   - mongo
     networks:
       - bi-network
     restart: unless-stopped
-
-  mongo:
-    image: mongo:6.0
-    container_name: servicio-bi-mongo
-    environment:
-      MONGO_INITDB_DATABASE: agencia_viajes
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-    networks:
-      - bi-network
 
 networks:
   bi-network:
     driver: bridge
 
-volumes:
-  postgres_data:
-    driver: local
+# volumes:  # Descomentar si usas postgres y mongo locales
+#   postgres_data:
+#     driver: local
+#   mongo_data:
+#     driver: local
 

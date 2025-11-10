@@ -1,0 +1,138 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: servicio-bi-config
+  namespace: default
+data:
+  MONGO_DATABASE: "agencia_viajes"
+  # Agregar otras variables de configuración NO sensibles aquí
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: servicio-bi-secrets
+  namespace: default
+type: Opaque
+stringData:
+  # ⚠️ IMPORTANTE: Reemplazar con valores reales en producción
+  MONGO_URI: "mongodb+srv://usuario:password@cluster.mongodb.net"
+  POSTGRES_URI: "postgresql://usuario:password@host:5432/database"
+  # O usar variables separadas:
+  # PG_DATABASE: "postgres"
+  # PG_USER: "usuario"
+  # PG_PASSWORD: "password"
+  # PG_HOST: "host.supabase.com"
+  # PG_PORT: "6543"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: servicio-bi
+  namespace: default
+  labels:
+    app: servicio-bi
+    version: v1
+spec:
+  replicas: 2  # Número de pods (escalabilidad horizontal)
+  selector:
+    matchLabels:
+      app: servicio-bi
+  template:
+    metadata:
+      labels:
+        app: servicio-bi
+        version: v1
+    spec:
+      containers:
+      - name: servicio-bi
+        # ⚠️ CAMBIAR por tu imagen en Docker Hub
+        image: tuusuario/servicio-bi:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        
+        # Variables de entorno desde ConfigMap y Secret
+        envFrom:
+        - configMapRef:
+            name: servicio-bi-config
+        - secretRef:
+            name: servicio-bi-secrets
+        
+        # Recursos asignados al contenedor
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: servicio-bi-service
+  namespace: default
+  labels:
+    app: servicio-bi
+spec:
+  type: LoadBalancer  # Cambia a ClusterIP si solo se usa internamente
+  selector:
+    app: servicio-bi
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80        # Puerto expuesto externamente
+    targetPort: 8000  # Puerto del contenedor
+  sessionAffinity: None
+
+---
+# Opcional: HorizontalPodAutoscaler para escalar automáticamente
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: servicio-bi-hpa
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: servicio-bi
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
