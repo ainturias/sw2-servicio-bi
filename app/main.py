@@ -363,25 +363,26 @@ async def obtener_resumen_dashboard(
                 cur.execute("SELECT COUNT(*) FROM clientes")
                 total_clientes = cur.fetchone()[0]
                 
-                # Total de ventas confirmadas
+                # Total de ventas confirmadas (incluye: confirmada, pagada, emitida, pendiente)
+                # Excluye solo las canceladas
                 query_ventas_confirmadas = f"""
                     SELECT COUNT(*) 
                     FROM ventas v
-                    {ventas_where if ventas_where else "WHERE v.estado = 'confirmada'"}
-                    {f"AND v.estado = 'confirmada'" if ventas_where else ""}
+                    {ventas_where if ventas_where else "WHERE v.estado != 'cancelada'"}
+                    {f"AND v.estado != 'cancelada'" if ventas_where else ""}
                 """
                 if ventas_where:
                     cur.execute(query_ventas_confirmadas, params)
                 else:
-                    cur.execute("SELECT COUNT(*) FROM ventas WHERE estado = 'confirmada'")
+                    cur.execute("SELECT COUNT(*) FROM ventas WHERE estado != 'cancelada'")
                 total_ventas_confirmadas = cur.fetchone()[0]
                 
-                # Total de monto vendido (suma de montos de ventas confirmadas)
+                # Total de monto vendido (suma de montos de ventas no canceladas)
                 query_monto = f"""
                     SELECT COALESCE(SUM(monto), 0) 
                     FROM ventas v
-                    {ventas_where if ventas_where else "WHERE v.estado = 'confirmada'"}
-                    {f"AND v.estado = 'confirmada'" if ventas_where else ""}
+                    {ventas_where if ventas_where else "WHERE v.estado != 'cancelada'"}
+                    {f"AND v.estado != 'cancelada'" if ventas_where else ""}
                 """
                 if ventas_where:
                     cur.execute(query_monto, params)
@@ -389,7 +390,7 @@ async def obtener_resumen_dashboard(
                     cur.execute("""
                         SELECT COALESCE(SUM(monto), 0) 
                         FROM ventas 
-                        WHERE estado = 'confirmada'
+                        WHERE estado != 'cancelada'
                     """)
                 total_monto_vendido = cur.fetchone()[0] or 0.0
                 
@@ -462,7 +463,7 @@ async def obtener_resumen_dashboard(
                     INNER JOIN ventas v ON dv.venta_id = v.id
                     LEFT JOIN servicios s ON dv.servicio_id = s.id
                     LEFT JOIN paquetes_turisticos pt ON dv.paquete_id = pt.id
-                    WHERE v.estado = 'confirmada'
+                    WHERE v.estado != 'cancelada'
                     {fecha_where_top}
                     GROUP BY COALESCE(s.destino_ciudad, pt.destino_principal, 'Sin destino')
                     HAVING COALESCE(SUM(dv.subtotal), 0) > 0
@@ -498,7 +499,7 @@ async def obtener_resumen_dashboard(
                         DATE(fecha_venta) as fecha,
                         COUNT(*) as cantidad_reservas
                     FROM ventas v
-                    WHERE v.estado = 'confirmada'
+                    WHERE v.estado != 'cancelada'
                     {fecha_where_tendencia}
                     GROUP BY DATE(fecha_venta)
                     ORDER BY fecha ASC
@@ -900,7 +901,7 @@ async def obtener_top_destinos(
                     INNER JOIN ventas v ON dv.venta_id = v.id
                     LEFT JOIN servicios s ON dv.servicio_id = s.id
                     LEFT JOIN paquetes_turisticos pt ON dv.paquete_id = pt.id
-                    WHERE v.estado = 'confirmada'
+                    WHERE v.estado != 'cancelada'
                     {fecha_where}
                     GROUP BY COALESCE(s.destino_ciudad, pt.destino_principal, 'Sin destino')
                     HAVING COALESCE(SUM(dv.subtotal), 0) > 0
