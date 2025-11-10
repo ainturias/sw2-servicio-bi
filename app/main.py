@@ -68,7 +68,11 @@ class HealthResponse(BaseModel):
 class ResumenKPIs(BaseModel):
     total_clientes: int
     total_ventas_confirmadas: int
+    total_ventas_pendientes: int
+    total_ventas_canceladas: int
+    total_ventas: int
     total_monto_vendido: float
+    total_monto_pendiente: float
     tasa_cancelacion: float
 
 
@@ -389,8 +393,12 @@ async def obtener_resumen_dashboard(
     Endpoint para obtener el resumen de KPIs del dashboard.
     Retorna datos reales desde PostgreSQL:
     - Total de clientes
-    - Total de ventas confirmadas
-    - Total de monto vendido
+    - Total de ventas confirmadas (estado = 'confirmada')
+    - Total de ventas pendientes (estado = 'pendiente')
+    - Total de ventas canceladas (estado = 'cancelada')
+    - Total de ventas (todas)
+    - Total de monto vendido (solo confirmadas)
+    - Total de monto pendiente (solo pendientes)
     - Tasa de cancelación
     
     Parámetros opcionales:
@@ -429,6 +437,22 @@ async def obtener_resumen_dashboard(
                     cur.execute("SELECT COUNT(*) FROM ventas WHERE estado = 'confirmada'")
                 total_ventas_confirmadas = cur.fetchone()[0]
                 
+                # Total de ventas pendientes
+                if ventas_where:
+                    query = f"SELECT COUNT(*) FROM ventas v {ventas_where} AND v.estado = 'pendiente'"
+                    cur.execute(query, params)
+                else:
+                    cur.execute("SELECT COUNT(*) FROM ventas WHERE estado = 'pendiente'")
+                total_ventas_pendientes = cur.fetchone()[0]
+                
+                # Total de ventas canceladas
+                if ventas_where:
+                    query = f"SELECT COUNT(*) FROM ventas v {ventas_where} AND v.estado = 'cancelada'"
+                    cur.execute(query, params)
+                else:
+                    cur.execute("SELECT COUNT(*) FROM ventas WHERE estado = 'cancelada'")
+                total_ventas_canceladas = cur.fetchone()[0]
+                
                 # Total de monto vendido (SOLO ventas confirmadas)
                 if ventas_where:
                     query = f"SELECT COALESCE(SUM(monto), 0) FROM ventas v {ventas_where} AND v.estado = 'confirmada'"
@@ -436,6 +460,14 @@ async def obtener_resumen_dashboard(
                 else:
                     cur.execute("SELECT COALESCE(SUM(monto), 0) FROM ventas WHERE estado = 'confirmada'")
                 total_monto_vendido = cur.fetchone()[0] or 0.0
+                
+                # Total de monto pendiente
+                if ventas_where:
+                    query = f"SELECT COALESCE(SUM(monto), 0) FROM ventas v {ventas_where} AND v.estado = 'pendiente'"
+                    cur.execute(query, params)
+                else:
+                    cur.execute("SELECT COALESCE(SUM(monto), 0) FROM ventas WHERE estado = 'pendiente'")
+                total_monto_pendiente = cur.fetchone()[0] or 0.0
                 
                 # Total de ventas (todas)
                 if ventas_where:
@@ -534,7 +566,11 @@ async def obtener_resumen_dashboard(
         kpis = ResumenKPIs(
             total_clientes=total_clientes,
             total_ventas_confirmadas=total_ventas_confirmadas,
+            total_ventas_pendientes=total_ventas_pendientes,
+            total_ventas_canceladas=total_ventas_canceladas,
+            total_ventas=total_ventas,
             total_monto_vendido=float(total_monto_vendido),
+            total_monto_pendiente=float(total_monto_pendiente),
             tasa_cancelacion=round(tasa_cancelacion, 2)
         )
         
