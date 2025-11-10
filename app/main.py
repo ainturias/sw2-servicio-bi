@@ -1240,3 +1240,82 @@ async def simple_check():
     except Exception as e:
         logger.error(f"❌ Error en simple check: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@app.get("/debug/check-ventas", tags=["Debug"])
+async def check_ventas():
+    """
+    Verificar el estado de las ventas en PostgreSQL.
+    Muestra cuántas ventas hay por estado y los primeros registros.
+    """
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                # Contar ventas totales
+                cur.execute("SELECT COUNT(*) FROM ventas")
+                total_ventas = cur.fetchone()[0]
+                
+                # Contar por estado
+                cur.execute("""
+                    SELECT estado, COUNT(*) 
+                    FROM ventas 
+                    GROUP BY estado
+                """)
+                ventas_por_estado = {row[0]: row[1] for row in cur.fetchall()}
+                
+                # Obtener muestra de ventas
+                cur.execute("""
+                    SELECT id, origen_id, fecha_venta, estado, monto, cliente_id, agente_id
+                    FROM ventas
+                    LIMIT 5
+                """)
+                ventas_sample = []
+                for row in cur.fetchall():
+                    ventas_sample.append({
+                        "id": row[0],
+                        "origen_id": row[1],
+                        "fecha_venta": row[2].isoformat() if row[2] else None,
+                        "estado": row[3],
+                        "monto": float(row[4]) if row[4] else 0.0,
+                        "cliente_id": row[5],
+                        "agente_id": row[6]
+                    })
+                
+                # Contar detalle_venta
+                cur.execute("SELECT COUNT(*) FROM detalle_venta")
+                total_detalles = cur.fetchone()[0]
+                
+                # Muestra de detalle_venta
+                cur.execute("""
+                    SELECT id, venta_id, servicio_id, paquete_id, cantidad, precio_unitario_venta, subtotal
+                    FROM detalle_venta
+                    LIMIT 5
+                """)
+                detalles_sample = []
+                for row in cur.fetchall():
+                    detalles_sample.append({
+                        "id": row[0],
+                        "venta_id": row[1],
+                        "servicio_id": row[2],
+                        "paquete_id": row[3],
+                        "cantidad": row[4],
+                        "precio_unitario_venta": float(row[5]) if row[5] else 0.0,
+                        "subtotal": float(row[6]) if row[6] else 0.0
+                    })
+        
+        return {
+            "status": "success",
+            "ventas": {
+                "total": total_ventas,
+                "por_estado": ventas_por_estado,
+                "muestra": ventas_sample
+            },
+            "detalle_venta": {
+                "total": total_detalles,
+                "muestra": detalles_sample
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error en check ventas: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
