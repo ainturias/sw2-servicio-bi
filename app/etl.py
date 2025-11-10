@@ -45,12 +45,16 @@ def get_mongo_client() -> MongoClient:
 
 
 def get_pg_connection():
-    """Conecta a PostgreSQL usando el Transaction Pooler de Supabase"""
+    """Conecta a PostgreSQL usando el Transaction Pooler de Supabase
+    
+    IMPORTANTE: Esta función devuelve directamente una conexión (no un context manager).
+    El llamador es responsable de cerrar la conexión cuando termine de usarla.
+    """
     # Usar el pool central si está disponible (implementado en app.db)
     try:
-        from app.db import get_conn as db_get_conn
+        from app.db import _POOL
     except Exception:
-        db_get_conn = None
+        _POOL = None
 
     # Reintentos simples con backoff exponencial para conexiones transitorias
     max_attempts = 3
@@ -58,8 +62,11 @@ def get_pg_connection():
 
     for attempt in range(1, max_attempts + 1):
         try:
-            if db_get_conn is not None:
-                conn = db_get_conn()
+            if _POOL is not None:
+                # Obtener conexión del pool usando context manager
+                # Necesitamos entrar al context manager para obtener la conexión real
+                conn_context = _POOL.connection()
+                conn = conn_context.__enter__()
                 logger.info("Conexión a PostgreSQL (pool) establecida")
             else:
                 # Fallback: conexión directa
