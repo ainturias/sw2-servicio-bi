@@ -1,3 +1,7 @@
+"""
+API REST de Business Intelligence para agencia de viajes.
+Proporciona endpoints de KPIs, analytics y sincronización en tiempo real desde MongoDB.
+"""
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel

@@ -1,3 +1,7 @@
+"""
+Gestión de pool de conexiones a PostgreSQL (Supabase).
+Maneja conexiones reutilizables para endpoints HTTP y conexiones directas para scripts ETL.
+"""
 import os
 import psycopg
 from psycopg import Connection
