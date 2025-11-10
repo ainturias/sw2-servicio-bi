@@ -248,55 +248,27 @@ async def sync_once():
         }
 
 
-@app.get("/debug/ventas-por-fecha", tags=["Debug"])
-async def get_ventas_por_fecha():
+@app.post("/sync/force", tags=["Health"])
+async def force_sync():
     """
-    Endpoint de debug para ver todas las fechas de ventas disponibles.
-    Útil para verificar filtros de frontend.
+    Endpoint para forzar sincronización inmediata.
+    Llama a este endpoint después de cambiar el estado de una venta en el frontend.
     """
+    from app.etl import sync_data
     try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT 
-                        DATE(fecha_venta) as fecha,
-                        COUNT(*) as cantidad,
-                        SUM(monto) as monto_total,
-                        STRING_AGG(estado, ', ') as estados
-                    FROM ventas
-                    GROUP BY DATE(fecha_venta)
-                    ORDER BY fecha DESC
-                """)
-                
-                fechas = []
-                for row in cur.fetchall():
-                    fechas.append({
-                        "fecha": row[0].isoformat() if row[0] else None,
-                        "cantidad_ventas": row[1],
-                        "monto_total": float(row[2]) if row[2] else 0.0,
-                        "estados": row[3]
-                    })
-                
-                # También mostrar el rango total
-                cur.execute("""
-                    SELECT 
-                        MIN(fecha_venta) as fecha_min,
-                        MAX(fecha_venta) as fecha_max
-                    FROM ventas
-                """)
-                rango = cur.fetchone()
-                
-                return {
-                    "rango_total": {
-                        "desde": rango[0].isoformat() if rango[0] else None,
-                        "hasta": rango[1].isoformat() if rango[1] else None
-                    },
-                    "ventas_por_fecha": fechas,
-                    "total_dias_con_ventas": len(fechas),
-                    "fecha_actual_servidor": date.today().isoformat()
-                }
+        logger.info("⚡ Forzando sincronización inmediata...")
+        sync_data()
+        logger.info("✅ Sincronización forzada completada")
+        return {
+            "status": "success",
+            "message": "Sincronización forzada completada exitosamente"
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"❌ Error en sincronización forzada: {e}")
+        return {
+            "status": "error",
+            "message": f"Error: {str(e)}"
+        }
 
 
 @app.get("/debug/ventas-estados", tags=["Debug"])
