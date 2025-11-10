@@ -171,6 +171,30 @@ async def restart_sync():
         }
 
 
+@app.post("/sync/once", tags=["Health"])
+async def sync_once():
+    """
+    Endpoint para ejecutar UNA sincronización completa manualmente.
+    Sincroniza TODOS los datos de MongoDB a PostgreSQL, no solo los cambios nuevos.
+    Útil para recuperar datos que se agregaron antes de iniciar el change stream.
+    """
+    from app.etl import sync_data
+    try:
+        logger.info("🔄 Ejecutando sincronización manual completa...")
+        sync_data()
+        logger.info("✅ Sincronización manual completada")
+        return {
+            "status": "success",
+            "message": "Sincronización manual completada exitosamente"
+        }
+    except Exception as e:
+        logger.error(f"❌ Error en sincronización manual: {e}")
+        return {
+            "status": "error",
+            "message": f"Error: {str(e)}"
+        }
+
+
 @app.get("/dashboard/resumen", response_model=DashboardResumenResponse, tags=["Dashboard"])
 async def obtener_resumen_dashboard(
     fecha_inicio: Optional[date] = None,
