@@ -1029,3 +1029,141 @@ async def exportar_ventas_csv(
             status_code=500,
             detail=f"Error al exportar ventas a CSV: {str(e)}"
         )
+
+
+@app.get("/debug/detailed-sync", tags=["Debug"])
+async def detailed_sync_debug():
+    """
+    Endpoint de diagnóstico detallado para ver exactamente qué está pasando
+    con la sincronización de datos.
+    """
+    import os
+    from pymongo import MongoClient
+    from app.etl import extract_collection, map_cliente
+    
+    try:
+        results = {}
+        
+        # 1. Verificar MongoDB
+        mongo_uri = os.getenv("MONGO_URI")
+        mongo_db_name = os.getenv("MONGO_DATABASE", "agencia_viajes")
+        
+        if not mongo_uri:
+            raise ValueError("MONGO_URI no configurada")
+        
+        mongo_client = MongoClient(mongo_uri)
+        mongo_db = mongo_client[mongo_db_name]
+        
+        # Extraer clientes de MongoDB
+        clientes_mongo = extract_collection(mongo_db, "clientes")
+        results["mongo_clientes_extraidos"] = len(clientes_mongo)
+        results["mongo_primer_cliente"] = clientes_mongo[0] if clientes_mongo else None
+        
+        # Transformar el primer cliente
+        if clientes_mongo:
+            primer_cliente_transformado = map_cliente(clientes_mongo[0])
+            results["primer_cliente_transformado"] = primer_cliente_transformado
+        
+        # 2. Verificar PostgreSQL
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                # Contar clientes
+                cur.execute("SELECT COUNT(*) FROM clientes")
+                count = cur.fetchone()[0]
+                results["postgres_clientes_count"] = count
+                
+                # Obtener primeros 3 clientes si existen
+                cur.execute("SELECT origen_id, nombre, email FROM clientes LIMIT 3")
+                clientes_pg = cur.fetchall()
+                results["postgres_primeros_clientes"] = [
+                    {"origen_id": c[0], "nombre": c[1], "email": c[2]} 
+                    for c in clientes_pg
+                ]
+                
+                # Verificar estructura de la tabla
+                cur.execute("""
+                    SELECT column_name, data_type 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'clientes'
+                    ORDER BY ordinal_position
+                """)
+                columns = cur.fetchall()
+                results["postgres_tabla_estructura"] = [
+                    {"columna": c[0], "tipo": c[1]} 
+                    for c in columns
+                ]
+        finally:
+            conn.close()
+        
+        mongo_client.close()
+        
+        return {
+            "status": "success",
+            "diagnostico": results
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error en diagnóstico detallado: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@app.post("/debug/test-insert", tags=["Debug"])
+async def test_insert_cliente():
+    """
+    Intenta insertar un cliente de prueba directamente para ver errores específicos.
+    """
+    import os
+    from pymongo import MongoClient
+    from app.etl import extract_collection, map_cliente, upsert_clientes
+    
+    try:
+        # Conectar a MongoDB y obtener un cliente real
+        mongo_uri = os.getenv("MONGO_URI")
+        mongo_db_name = os.getenv("MONGO_DATABASE", "agencia_viajes")
+        
+        mongo_client = MongoClient(mongo_uri)
+        mongo_db = mongo_client[mongo_db_name]
+        
+        clientes_mongo = extract_collection(mongo_db, "clientes")
+        mongo_client.close()
+        
+        if not clientes_mongo:
+            return {"status": "error", "message": "No hay clientes en MongoDB"}
+        
+        # Transformar primer cliente
+        primer_cliente = map_cliente(clientes_mongo[0])
+        
+        # Intentar insertar en PostgreSQL
+        conn = get_conn()
+        conn.autocommit = False
+        
+        try:
+            insertados, actualizados = upsert_clientes(conn, [primer_cliente])
+            conn.commit()
+            
+            # Verificar si se insertó
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM clientes WHERE origen_id = %s", (primer_cliente['origen_id'],))
+                count = cur.fetchone()[0]
+            
+            conn.close()
+            
+            return {
+                "status": "success",
+                "cliente_mongo": clientes_mongo[0],
+                "cliente_transformado": primer_cliente,
+                "insertados": insertados,
+                "actualizados": actualizados,
+                "verificacion_count": count
+            }
+            
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            logger.error(f"❌ Error al insertar cliente de prueba: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error SQL: {str(e)}")
+        
+    except Exception as e:
+        logger.error(f"❌ Error general en test insert: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
