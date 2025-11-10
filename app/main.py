@@ -363,83 +363,35 @@ async def obtener_resumen_dashboard(
                 cur.execute("SELECT COUNT(*) FROM clientes")
                 total_clientes = cur.fetchone()[0]
                 
-                # Total de ventas confirmadas (incluye: confirmada, pagada, emitida, pendiente)
-                # Excluye solo las canceladas
-                query_ventas_confirmadas = f"""
-                    SELECT COUNT(*) 
-                    FROM ventas v
-                    {ventas_where if ventas_where else "WHERE (v.estado != 'cancelada' OR v.estado IS NULL)"}
-                    {f"AND (v.estado != 'cancelada' OR v.estado IS NULL)" if ventas_where else ""}
-                """
+                # Total de ventas no canceladas
                 if ventas_where:
-                    cur.execute(query_ventas_confirmadas, params)
+                    query = f"SELECT COUNT(*) FROM ventas v {ventas_where} AND (v.estado != 'cancelada' OR v.estado IS NULL)"
+                    cur.execute(query, params)
                 else:
                     cur.execute("SELECT COUNT(*) FROM ventas WHERE (estado != 'cancelada' OR estado IS NULL)")
                 total_ventas_confirmadas = cur.fetchone()[0]
                 
-                # Total de monto vendido (suma de montos de ventas no canceladas)
-                query_monto = f"""
-                    SELECT COALESCE(SUM(monto), 0) 
-                    FROM ventas v
-                    {ventas_where if ventas_where else "WHERE (v.estado != 'cancelada' OR v.estado IS NULL)"}
-                    {f"AND (v.estado != 'cancelada' OR v.estado IS NULL)" if ventas_where else ""}
-                """
+                # Total de monto vendido
                 if ventas_where:
-                    cur.execute(query_monto, params)
+                    query = f"SELECT COALESCE(SUM(monto), 0) FROM ventas v {ventas_where} AND (v.estado != 'cancelada' OR v.estado IS NULL)"
+                    cur.execute(query, params)
                 else:
-                    cur.execute("""
-                        SELECT COALESCE(SUM(monto), 0) 
-                        FROM ventas 
-                        WHERE (estado != 'cancelada' OR estado IS NULL)
-                    """)
+                    cur.execute("SELECT COALESCE(SUM(monto), 0) FROM ventas WHERE (estado != 'cancelada' OR estado IS NULL)")
                 total_monto_vendido = cur.fetchone()[0] or 0.0
                 
-                # Total de ventas (confirmadas + canceladas) para calcular tasa
-                query_total_ventas = f"""
-                    SELECT COUNT(*) 
-                    FROM ventas v
-                    {ventas_where}
-                """
+                # Total de ventas (todas)
                 if ventas_where:
-                    cur.execute(query_total_ventas, params)
+                    cur.execute(f"SELECT COUNT(*) FROM ventas v {ventas_where}", params)
                 else:
                     cur.execute("SELECT COUNT(*) FROM ventas")
                 total_ventas = cur.fetchone()[0]
                 
-                # Total de ventas canceladas
-                query_ventas_canceladas = f"""
-                    SELECT COUNT(*) 
-                    FROM ventas v
-                    {ventas_where if ventas_where else "WHERE v.estado = 'cancelada'"}
-                    {f"AND v.estado = 'cancelada'" if ventas_where else ""}
-                """
+                # Tasa de cancelación
                 if ventas_where:
-                    cur.execute(query_ventas_canceladas, params)
+                    query = f"SELECT COALESCE((COUNT(CASE WHEN v.estado = 'cancelada' THEN 1 END)::DECIMAL / NULLIF(COUNT(*), 0)) * 100, 0) FROM ventas v {ventas_where}"
+                    cur.execute(query, params)
                 else:
-                    cur.execute("SELECT COUNT(*) FROM ventas WHERE estado = 'cancelada'")
-                total_ventas_canceladas = cur.fetchone()[0]
-                
-                # Calcular tasa de cancelación usando NULLIF para prevenir división por cero
-                query_tasa = f"""
-                    SELECT COALESCE(
-                        (COUNT(CASE WHEN v.estado = 'cancelada' THEN 1 END)::DECIMAL / 
-                         NULLIF(COUNT(*), 0)) * 100, 
-                        0
-                    )
-                    FROM ventas v
-                    {ventas_where}
-                """
-                if ventas_where:
-                    cur.execute(query_tasa, params)
-                else:
-                    cur.execute("""
-                        SELECT COALESCE(
-                            (COUNT(CASE WHEN estado = 'cancelada' THEN 1 END)::DECIMAL / 
-                             NULLIF(COUNT(*), 0)) * 100, 
-                            0
-                        )
-                        FROM ventas
-                    """)
+                    cur.execute("SELECT COALESCE((COUNT(CASE WHEN estado = 'cancelada' THEN 1 END)::DECIMAL / NULLIF(COUNT(*), 0)) * 100, 0) FROM ventas")
                 tasa_cancelacion = float(cur.fetchone()[0] or 0.0)
                 
                 # Obtener top destinos (top 5 por defecto)
