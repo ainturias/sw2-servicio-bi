@@ -126,6 +126,51 @@ async def health_check() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
+@app.get("/health/pool", tags=["Health"])
+async def health_check_pool():
+    """
+    Endpoint de diagnóstico del pool de conexiones.
+    Retorna información sobre el estado del pool.
+    """
+    from app.db import _POOL
+    try:
+        if _POOL is None:
+            return {
+                "pool_status": "not_initialized",
+                "message": "Pool no está inicializado",
+                "test_connection": "attempting_direct_connection"
+            }
+        
+        # Intentar obtener stats del pool (psycopg_pool)
+        pool_info = {
+            "pool_status": "initialized",
+            "pool_size": _POOL.size if hasattr(_POOL, 'size') else "unknown",
+            "max_size": _POOL.max_size if hasattr(_POOL, 'max_size') else "unknown",
+            "min_size": _POOL.min_size if hasattr(_POOL, 'min_size') else "unknown"
+        }
+        
+        # Probar obtener una conexión del pool
+        try:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                    result = cur.fetchone()
+                    pool_info["test_query"] = "success"
+                    pool_info["test_result"] = result[0] if result else None
+        except Exception as e:
+            pool_info["test_query"] = "failed"
+            pool_info["test_error"] = str(e)
+        
+        return pool_info
+        
+    except Exception as e:
+        return {
+            "pool_status": "error",
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
+
 @app.get("/sync/status", tags=["Health"])
 async def sync_status():
     """
