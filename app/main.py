@@ -1288,12 +1288,12 @@ async def check_ventas():
         # 2. Verificar PostgreSQL
         with get_conn() as conn:
             with conn.cursor() as cur:
-                # Contar ventas totales
+                # Contar ventas totales SIN FILTRO
                 cur.execute("SELECT COUNT(*) FROM ventas")
                 pg_ventas_total = cur.fetchone()[0]
                 results["pg_ventas_total"] = pg_ventas_total
                 
-                # Contar por estado
+                # Contar por estado (todos los estados)
                 cur.execute("""
                     SELECT estado, COUNT(*) 
                     FROM ventas 
@@ -1301,14 +1301,13 @@ async def check_ventas():
                 """)
                 ventas_por_estado = {}
                 for row in cur.fetchall():
-                    ventas_por_estado[row[0]] = row[1]
+                    ventas_por_estado[row[0] if row[0] else "NULL"] = row[1]
                 results["pg_ventas_por_estado"] = ventas_por_estado
                 
-                # Obtener muestra de ventas de PostgreSQL
+                # Obtener TODAS las ventas de PostgreSQL (sin límite)
                 cur.execute("""
                     SELECT id, origen_id, fecha_venta, estado, monto, cliente_id, agente_id
                     FROM ventas
-                    LIMIT 3
                 """)
                 pg_ventas_sample = []
                 for row in cur.fetchall():
@@ -1331,4 +1330,45 @@ async def check_ventas():
     except Exception as e:
         logger.error(f"❌ Error en check ventas: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@app.get("/debug/ventas-raw", tags=["Debug"])
+async def ventas_raw():
+    """
+    Endpoint ultra simple para ver TODAS las ventas en PostgreSQL sin filtros.
+    """
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM ventas")
+                rows = cur.fetchall()
+                
+                # Obtener nombres de columnas
+                cur.execute("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'ventas'
+                    ORDER BY ordinal_position
+                """)
+                columns = [row[0] for row in cur.fetchall()]
+                
+                ventas = []
+                for row in rows:
+                    venta = {}
+                    for i, col in enumerate(columns):
+                        value = row[i]
+                        if hasattr(value, 'isoformat'):
+                            venta[col] = value.isoformat()
+                        else:
+                            venta[col] = value
+                    ventas.append(venta)
+                
+                return {
+                    "total": len(ventas),
+                    "ventas": ventas
+                }
+    except Exception as e:
+        logger.error(f"❌ Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 
