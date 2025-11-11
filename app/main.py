@@ -37,6 +37,16 @@ async def startup_event():
         init_pool(min_size=1, max_size=5)
         logger.info("✅ Pool de PostgreSQL inicializado")
         
+        # Sincronización inicial completa al arrancar
+        logger.info("🔄 Ejecutando sincronización inicial de datos...")
+        from app.etl import sync_data
+        try:
+            sync_data()
+            logger.info("✅ Sincronización inicial completada")
+        except Exception as sync_error:
+            logger.error(f"⚠️ Error en sincronización inicial: {sync_error}")
+        
+        # Activar Change Streams para cambios en tiempo real
         if start_realtime_sync():
             logger.info("✅ Sincronización en tiempo real activada")
         else:
